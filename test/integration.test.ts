@@ -13,6 +13,7 @@ vi.mock("../src/channels/index.js", () => {
     send: async (to: string, text: string, opts?: unknown) => {
       sent.push({ to, text, opts });
     },
+    downloadAudio: async () => ({ data: Buffer.from("OggS-fake"), mimeType: "audio/ogg" }),
   });
   return { channels: { telegram: adapter("telegram"), whatsapp: adapter("whatsapp") } };
 });
@@ -105,6 +106,16 @@ describe.skipIf(!RUN)("fluxo completo", () => {
     const after = (await query("SELECT status, due_at FROM reminders WHERE id = $1", [r.id])).rows[0];
     expect(after.status).toBe("active"); // recorrente: reagendado
     expect(new Date(after.due_at).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("nota de voz é transcrita e segue para o agente (RF-07)", async () => {
+    const { setTranscriber } = await import("../src/core/handler.js");
+    setTranscriber({ name: "fake", transcribe: async () => "me lembra de beber água" });
+    await handleInbound({ ...msg(""), text: undefined, audio: { fileId: "f1", mimeType: "audio/ogg" } });
+    expect(last()).toBe("eco: me lembra de beber água");
+    setTranscriber(null);
+    await handleInbound({ ...msg(""), text: undefined, audio: { fileId: "f2" } });
+    expect(last()).toMatch(/não consigo ouvir áudios/);
   });
 
   it("pausar e voltar (RF-28)", async () => {

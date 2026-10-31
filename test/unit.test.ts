@@ -139,3 +139,42 @@ describe("agente", async () => {
     }
   });
 });
+
+describe("fala (RF-07)", async () => {
+  const { parseWavHeader } = await import("../src/speech/nvidia.js");
+  const { FallbackTranscriber } = await import("../src/speech/index.js");
+
+  it("lê taxa e canais do cabeçalho WAV", () => {
+    const h = Buffer.alloc(44);
+    h.write("RIFF", 0); h.write("WAVE", 8); h.write("fmt ", 12);
+    h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22); h.writeUInt32LE(22050, 24);
+    h.write("data", 36);
+    expect(parseWavHeader(h)).toEqual({ sampleRate: 22050, channels: 1 });
+    expect(parseWavHeader(Buffer.from("OggS".padEnd(50, "x")))).toBeNull();
+  });
+
+  it("cai para o próximo provedor quando o primeiro falha", async () => {
+    const t = new FallbackTranscriber([
+      { name: "a", transcribe: async () => { throw new Error("sem créditos"); } },
+      { name: "b", transcribe: async () => "olá juca" },
+    ]);
+    expect(await t.transcribe(Buffer.alloc(1), "audio/ogg")).toBe("olá juca");
+  });
+
+  it("propaga o erro se todos falharem", async () => {
+    const t = new FallbackTranscriber([{ name: "a", transcribe: async () => { throw new Error("x"); } }]);
+    await expect(t.transcribe(Buffer.alloc(1), "audio/ogg")).rejects.toThrow("x");
+  });
+});
+
+describe("ferramentas web por modelo", async () => {
+  const { serverTools } = await import("../src/agent/tools.js");
+  const types = (model: string) => serverTools({ model, webSearch: true, linkSummary: true, timezone: "America/Sao_Paulo" }).map((t: any) => t.type);
+  it("Haiku usa as variantes básicas", () => {
+    expect(types("claude-haiku-5-5")).toEqual(["web_search_20250305", "web_fetch_20250910"]);
+  });
+  it("Opus/Sonnet usam filtragem dinâmica", () => {
+    expect(types("claude-opus-5-5")).toEqual(["web_search_20260209", "web_fetch_20260209"]);
+    expect(types("claude-sonnet-5-5")).toEqual(["web_search_20260209", "web_fetch_20260209"]);
+  });
+});

@@ -56,7 +56,7 @@ export async function runAgent(user: User, history: StoredMessage[], userText: s
 
   const tools: Anthropic.Beta.BetaToolUnion[] = [
     ...CUSTOM_TOOLS.filter((t) => memoryOn || (t.name !== "remember_fact" && t.name !== "forget_fact")),
-    ...serverTools({ webSearch, linkSummary, timezone: user.timezone }),
+    ...serverTools({ model, webSearch, linkSummary, timezone: user.timezone }),
   ];
 
   // Prefixo estável (ferramentas + prompt do sistema) cacheado; contexto dinâmico vem depois do breakpoint.

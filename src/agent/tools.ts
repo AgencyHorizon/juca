@@ -95,17 +95,21 @@ export const CUSTOM_TOOLS: Tool[] = [
 ].map((t) => ({ ...t, strict: true }) as Tool);
 
 /** Ferramentas de servidor da Anthropic para RF-14 (pesquisa) e RF-15 (resumo de links). */
-export function serverTools(opts: { webSearch: boolean; linkSummary: boolean; country?: string; timezone: string }) {
+// As variantes _20260209 (filtragem dinâmica) só existem em Opus/Sonnet recentes; Haiku usa as básicas.
+const DYNAMIC_WEB_TOOLS = /^claude-(opus-(5|4-[678])|sonnet-(5|4-6))/;
+
+export function serverTools(opts: { model: string; webSearch: boolean; linkSummary: boolean; country?: string; timezone: string }) {
+  const dynamic = DYNAMIC_WEB_TOOLS.test(opts.model);
   const tools: Anthropic.Beta.BetaToolUnion[] = [];
   if (opts.webSearch)
     tools.push({
-      type: "web_search_20260209",
+      type: dynamic ? "web_search_20260209" : "web_search_20250305",
       name: "web_search",
       max_uses: 3,
       user_location: { type: "approximate", country: opts.country ?? "BR", timezone: opts.timezone },
     });
   if (opts.linkSummary)
-    tools.push({ type: "web_fetch_20260209", name: "web_fetch", max_uses: 2, max_content_tokens: 20000 });
+    tools.push({ type: dynamic ? "web_fetch_20260209" : "web_fetch_20250910", name: "web_fetch", max_uses: 2, max_content_tokens: 20000 });
   return tools;
 }
 

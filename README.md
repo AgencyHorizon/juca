@@ -28,6 +28,7 @@ WhatsApp / Telegram
 - **`src/agent/`**: prompt versionado, 16 ferramentas `strict` e o loop de tool use com a API da Claude.
 - **`src/core/`**: domínio (usuários, onboarding, lembretes, listas, memória, privacidade, flags, rate limit, auditoria).
 - **`src/channels/`**: adaptadores e formatação por canal.
+- **`src/speech/`**: transcrição de voz. Usa a NVIDIA NIM (`whisper-large-v3` via Riva gRPC) e, se ela falhar, o Hugging Face. Os protos do Riva ficam em `proto/`.
 - **`migrations/`**: schema SQL.
 
 ## Rodando localmente
@@ -40,6 +41,10 @@ npm run migrate
 npm run dev                   # servidor (porta 3000)
 npm run dev:worker            # worker, em outro terminal
 ```
+
+**Testar no Telegram sem URL pública:** rode `npm run dev:worker` e, em outro terminal, `npm run dev:telegram`. Esse modo usa long polling e desativa o webhook. Depois é só conversar com o bot.
+
+**Testar a transcrição com um áudio real:** `npm run stt:smoke -- caminho/audio.ogg`
 
 Para receber webhooks localmente, exponha a porta 3000 (por exemplo com `ngrok http 3000`) e coloque a URL em `PUBLIC_BASE_URL`.
 
@@ -82,7 +87,7 @@ Todas as rotas exigem `Authorization: Bearer $ADMIN_TOKEN`.
 |---|---|
 | RF-01..04, RN-01..04, RN-21, RN-25 | `core/onboarding.ts`, `core/users.ts` |
 | RF-05/06/08/09 | `channels/*` |
-| RF-07 | `handler.ts` → `setTranscriber()` (flag `voice_transcription`, desligada até haver um provedor de STT) |
+| RF-07 | `speech/*`: NVIDIA NIM `whisper-large-v3` → Hugging Face (reserva), ligado em `handler.ts` (flag `voice_transcription`) |
 | RF-10..17, RF-19..24 | `agent/*`, `core/reminders.ts`, `core/lists.ts`, `core/memories.ts`, `core/conversation.ts` |
 | RF-18, RN-06 | `pending_action` + confirmação determinística em `handler.ts` |
 | RF-25, RNF-23 | `jobs/reminders.ts` (Postgres como fonte da verdade, retry com backoff) |
@@ -95,9 +100,9 @@ Todas as rotas exigem `Authorization: Bearer $ADMIN_TOKEN`.
 
 ## Pendências e decisões em aberto
 
-- **Custo (RNF-31, ≤ US$ 1,50/usuário/mês):** o padrão é `claude-opus-5-5` com `effort: low`, configurável em `JUCA_MODEL`/`JUCA_EFFORT`. Meça o custo real no `/admin/metrics/summary` com usuários do beta. Se passar da meta, teste `JUCA_MODEL=claude-haiku-5-5` (bem mais barato) e compare o 👍/👎 por versão.
+- **Modelo:** `claude-haiku-5-5` (US$ 0,10 / US$ 0,50 por milhão de tokens), com `effort: low`. Precisa de `ANTHROPIC_API_KEY`: os modelos Claude não rodam na NVIDIA NIM. No Haiku, as ferramentas web usam as variantes básicas (`web_search_20250305` e `web_fetch_20250910`), e o fallback de recusa no servidor não existe.
 - **OTP (RF-02):** em desenvolvimento, o código vai pelo próprio canal. Em produção, use `setOtpSender()` com um provedor de SMS, para o código provar a posse do número.
-- **Voz (RF-07):** falta escolher um provedor de transcrição.
+- **Voz (RF-07):** a NVIDIA foi testada com nota de voz real em pt-BR (OGG/Opus e WAV), com resposta em cerca de 1,3 s. No Hugging Face a autenticação funciona, mas a conta está sem créditos de Inference Providers (402).
 - **WhatsApp fora da janela de 24h:** lembretes enviados mais de 24h depois da última mensagem do usuário precisam de um *message template* aprovado pela Meta. Ainda falta criar o template e usá-lo em `jobs/reminders.ts`.
 - **TLS 1.3 (RNF-08):** fica a cargo do proxy/ingress (o app não termina TLS).
 - **DR (RNF-26):** backups com PITR no Postgres gerenciado (RPO ≤ 15 min).

@@ -13,13 +13,14 @@ import { handleOnboarding, type OtpSender, type Reply } from "./onboarding.js";
 import { deleteAllUserData } from "./privacy.js";
 import { checkRateLimit } from "./ratelimit.js";
 import { findOrCreateByChannel, updateUser, type User } from "./users.js";
+import { transcriberFromEnv, type Transcriber } from "../speech/index.js";
 
-/** Transcrição de áudio (RF-07). Plugável: configure um provedor de STT e ligue a flag voice_transcription. */
-export interface Transcriber {
-  transcribe(audio: Buffer, mimeType: string): Promise<string>;
-}
-let transcriber: Transcriber | null = null;
-export function setTranscriber(t: Transcriber) {
+/**
+ * Transcrição de áudio (RF-07). Padrão: NVIDIA NIM (whisper-large-v3) com Hugging Face como
+ * reserva, conforme as chaves no ambiente. Pode ser trocado em testes via setTranscriber.
+ */
+let transcriber: Transcriber | null = transcriberFromEnv();
+export function setTranscriber(t: Transcriber | null) {
   transcriber = t;
 }
 
@@ -109,7 +110,8 @@ async function handleActive(user: User, msg: InboundMessage, started: number) {
       return;
     }
     const { data, mimeType } = await adapter.downloadAudio(msg.audio.fileId);
-    text = (await transcriber.transcribe(data, mimeType)).trim();
+    text = (await transcriber.transcribe(data, mimeType, { language: config.STT_LANGUAGE })).trim();
+    logger.info({ provider: transcriber.name, chars: text.length }, "áudio transcrito");
     if (!text) {
       await send(msg, { text: "Não consegui entender o áudio. Pode repetir ou escrever?" });
       return;

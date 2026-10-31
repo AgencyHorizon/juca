@@ -9,7 +9,7 @@ const Env = z.object({
   DATA_ENCRYPTION_KEY: z.string().default(""),
   ADMIN_TOKEN: z.string().default(""),
 
-  JUCA_MODEL: z.string().default("claude-opus-5-5"),
+  JUCA_MODEL: z.string().default("claude-haiku-5-5"),
   JUCA_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),
   PROMPT_VERSION: z.string().default("v1"),
 
@@ -20,6 +20,13 @@ const Env = z.object({
   WHATSAPP_PHONE_NUMBER_ID: z.string().default(""),
   WHATSAPP_APP_SECRET: z.string().default(""),
   WHATSAPP_VERIFY_TOKEN: z.string().default(""),
+
+  // Transcrição de voz (RF-07): NVIDIA NIM (Riva gRPC) + Hugging Face como reserva
+  NVIDIA_API_KEY: z.string().default(""),
+  NVIDIA_ASR_FUNCTION_ID: z.string().default("b702f636-f60c-4a3d-a6f4-f3568c13bd7d"), // whisper-large-v3
+  HF_TOKEN: z.string().default(""),
+  HF_ASR_MODEL: z.string().default("openai/whisper-large-v3"),
+  STT_LANGUAGE: z.string().default("pt"),
 
   RATE_LIMIT_PER_HOUR: z.coerce.number().default(60),
   MAX_ACTIVE_REMINDERS: z.coerce.number().default(20),

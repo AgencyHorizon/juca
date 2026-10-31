@@ -4,7 +4,7 @@ import { query } from "../db/pool.js";
 export const FLAG_DEFAULTS: Record<string, boolean> = {
   web_search: true,
   link_summary: true,
-  voice_transcription: false, // depende de um provedor de STT configurado
+  voice_transcription: true, // só atua se houver NVIDIA_API_KEY ou HF_TOKEN configurado
   recurring_reminders: true,
   persistent_memory: true,
 };
