@@ -8,9 +8,11 @@ import type { StoredMessage } from "../core/conversation.js";
 import { logger } from "../lib/logger.js";
 import { errors, llmTokens } from "../lib/metrics.js";
 import { systemPrompt, userContext } from "./prompts.js";
-import { CUSTOM_TOOLS, executeTool, serverTools } from "./tools.js";
+import { runNvidiaAgent } from "./nvidia.js";
+import { CUSTOM_TOOLS, executeTool, localWebTools, serverTools } from "./tools.js";
 
-const client = new Anthropic({ maxRetries: 3, timeout: 60_000 }); // RNF-25: retry com backoff exponencial do SDK
+let anthropic: Anthropic | null = null; // criado sob demanda: só existe com LLM_PROVIDER=anthropic
+const client = () => (anthropic ??= new Anthropic({ maxRetries: 3, timeout: 60_000 })); // RNF-25: retry com backoff
 
 const MAX_STEPS = 8;
 // Modelos que aceitam o fallback de recusa no servidor (forma "default")
@@ -46,7 +48,6 @@ function toMessages(history: StoredMessage[], current: string): Anthropic.Beta.B
 }
 
 export async function runAgent(user: User, history: StoredMessage[], userText: string, opts: { newSession: boolean }): Promise<AgentResult> {
-  const model = config.JUCA_MODEL;
   const [facts, webSearch, linkSummary, memoryOn] = await Promise.all([
     listFacts(user.id),
     isEnabled("web_search", user),
@@ -54,24 +55,34 @@ export async function runAgent(user: User, history: StoredMessage[], userText: s
     isEnabled("persistent_memory", user),
   ]);
 
-  const tools: Anthropic.Beta.BetaToolUnion[] = [
-    ...CUSTOM_TOOLS.filter((t) => memoryOn || (t.name !== "remember_fact" && t.name !== "forget_fact")),
-    ...serverTools({ model, webSearch, linkSummary, timezone: user.timezone }),
-  ];
+  const custom = CUSTOM_TOOLS.filter((t) => memoryOn || (t.name !== "remember_fact" && t.name !== "forget_fact"));
+  const context = userContext({
+    name: user.name,
+    timezone: user.timezone,
+    nowLocal: nowLocalDescription(user.timezone),
+    facts: memoryOn ? facts : [],
+    newSession: opts.newSession,
+  });
+
+  if (config.LLM_PROVIDER === "nvidia") {
+    const web = localWebTools({ webSearch, linkSummary });
+    const r = await runNvidiaAgent({
+      user,
+      system: `${systemPrompt(config.PROMPT_VERSION)}\n\n${context}`,
+      history,
+      userText: sanitizeInput(userText),
+      tools: [...custom, ...web],
+    });
+    return { text: r.text ?? FRIENDLY_FAILURE, pending: r.pending, usage: r.usage, model: r.model };
+  }
+
+  const model = config.JUCA_MODEL;
+  const tools: Anthropic.Beta.BetaToolUnion[] = [...custom, ...serverTools({ model, webSearch, linkSummary, timezone: user.timezone })];
 
   // Prefixo estável (ferramentas + prompt do sistema) cacheado; contexto dinâmico vem depois do breakpoint.
   const system: Anthropic.Beta.BetaTextBlockParam[] = [
     { type: "text", text: systemPrompt(config.PROMPT_VERSION), cache_control: { type: "ephemeral" } },
-    {
-      type: "text",
-      text: userContext({
-        name: user.name,
-        timezone: user.timezone,
-        nowLocal: nowLocalDescription(user.timezone),
-        facts: memoryOn ? facts : [],
-        newSession: opts.newSession,
-      }),
-    },
+    { type: "text", text: context },
   ];
 
   const messages = toMessages(history, sanitizeInput(userText));
@@ -80,7 +91,7 @@ export async function runAgent(user: User, history: StoredMessage[], userText: s
   const useFallback = FALLBACK_MODELS.has(model);
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const response = await client.beta.messages.create({
+    const response = await client().beta.messages.create({
       model,
       max_tokens: 8000,
       system,

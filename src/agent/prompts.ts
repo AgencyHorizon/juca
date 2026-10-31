@@ -31,10 +31,25 @@ const V1 = `Você é o Juca, um assistente pessoal de IA que conversa pelo Whats
 - Se não entender o pedido, pergunte de forma curta e natural o que a pessoa quis dizer.
 - Comandos que a pessoa pode usar a qualquer hora: "o que você sabe sobre mim", "me manda meus dados", "apaga tudo", "pausar"/"voltar", 👍/👎 para avaliar sua última resposta.`;
 
-export const PROMPTS: Record<string, string> = { v1: V1 };
+/**
+ * v2 — para modelos abertos (NVIDIA NIM): clima via get_weather, busca só quando a ferramenta existe,
+ * e regras mais explícitas sobre tom e sobre usar ferramentas (modelos menores precisam disso).
+ */
+const V2 = V1.replace(
+  `- Pesquisa: para clima, notícias, preços, horários e fatos recentes, use web_search e resuma em poucas linhas, citando a fonte principal. Para um link enviado, use web_fetch e resuma.`,
+  `- Clima: use get_weather com a cidade (se a pessoa não disser, use a cidade dos fatos lembrados ou pergunte). Responda em 1–2 frases com a condição, a temperatura e a chance de chuva.
+- Pesquisa: para notícias, preços, horários e fatos recentes, use web_search se ela estiver disponível e resuma citando a fonte. Se não estiver, diga com naturalidade que ainda não consegue pesquisar isso e ofereça ajuda com um link que a pessoa mandar.
+- Links: quando a pessoa mandar uma URL, use web_fetch e resuma em poucas linhas.
+- Nunca invente dados (clima, preços, horários, fatos). Se a ferramenta falhar, diga que não conseguiu.`,
+).replace(
+  `- Tom: informal, caloroso e direto, em português do Brasil — como um amigo prestativo.`,
+  `- Tom: informal, caloroso e direto, em português do Brasil — como um amigo prestativo. Chame a pessoa pelo nome dela (nunca de "Juca": Juca é você).`,
+);
+
+export const PROMPTS: Record<string, string> = { v1: V1, v2: V2 };
 
 export function systemPrompt(version: string): string {
-  return PROMPTS[version] ?? V1;
+  return PROMPTS[version] ?? V2;
 }
 
 /** Bloco dinâmico (fora do cache): quem é a pessoa e que horas são. */

@@ -14,8 +14,8 @@ WhatsApp / Telegram
                                                  │
                        ┌─────────────────────────┼──────────────────────────┐
                        ▼                         ▼                          ▼
-              onboarding determinístico   comandos determinísticos     agente (Claude API)
-              (OTP, termos, nome, fuso)   (pausar, 👍/👎, confirmação)  tool use + web_search/web_fetch
+              onboarding determinístico   comandos determinísticos     agente (NVIDIA NIM ou Claude)
+              (OTP, termos, nome, fuso)   (pausar, 👍/👎, confirmação)  tool use + clima/links/busca
                                                  │
                                                  ▼
                                    Postgres (dados cifrados AES-256-GCM)
@@ -25,7 +25,7 @@ WhatsApp / Telegram
 
 - **`src/app.ts`, `src/server.ts`**: servidor HTTP com os webhooks, `/health`, `/metrics` (Prometheus) e `/admin/*` (backoffice).
 - **`src/worker.ts`**: consome a fila, com lock por usuário para manter a ordem da conversa. Também dispara lembretes e roda a retenção. Escala horizontalmente.
-- **`src/agent/`**: prompt versionado, 16 ferramentas `strict` e o loop de tool use com a API da Claude.
+- **`src/agent/`**: prompt versionado, ferramentas e o loop de tool use. O provedor padrão é a NVIDIA NIM (`nvidia.ts`), com a API da Claude como alternativa. As ferramentas locais de clima, leitura de links e busca ficam em `web.ts`.
 - **`src/core/`**: domínio (usuários, onboarding, lembretes, listas, memória, privacidade, flags, rate limit, auditoria).
 - **`src/channels/`**: adaptadores e formatação por canal.
 - **`src/speech/`**: transcrição de voz. Usa a NVIDIA NIM (`whisper-large-v3` via Riva gRPC) e, se ela falhar, o Hugging Face. Os protos do Riva ficam em `proto/`.
@@ -43,6 +43,8 @@ npm run dev:worker            # worker, em outro terminal
 ```
 
 **Testar no Telegram sem URL pública:** rode `npm run dev:worker` e, em outro terminal, `npm run dev:telegram`. Esse modo usa long polling e desativa o webhook. Depois é só conversar com o bot.
+
+**Testar o agente sem canal:** `npx tsx --env-file=.env scripts/agent-smoke.ts "me lembra de beber água às 15h"`
 
 **Testar a transcrição com um áudio real:** `npm run stt:smoke -- caminho/audio.ogg`
 
@@ -100,7 +102,11 @@ Todas as rotas exigem `Authorization: Bearer $ADMIN_TOKEN`.
 
 ## Pendências e decisões em aberto
 
-- **Modelo:** `claude-haiku-5-5` (US$ 0,10 / US$ 0,50 por milhão de tokens), com `effort: low`. Precisa de `ANTHROPIC_API_KEY`: os modelos Claude não rodam na NVIDIA NIM. No Haiku, as ferramentas web usam as variantes básicas (`web_search_20250305` e `web_fetch_20250910`), e o fallback de recusa no servidor não existe.
+- **Cérebro (LLM):** o padrão é a **NVIDIA NIM** com `nvidia/nemotron-3.5-lightning-30b-a3b` (de 2 a 4 s por resposta nos testes). O `mistralai/mistral-large-4-1t-a52b` é a reserva automática: tem boa qualidade, mas leva de 15 a 35 s. Os dois foram escolhidos num benchmark dos 54 modelos de chat da conta, testando chamada de ferramentas em pt-BR.
+  - **Clima:** vem do Open-Meteo, API pública e sem chave.
+  - **Busca web geral:** só funciona com `BRAVE_SEARCH_API_KEY`. O Juca não faz scraping de buscadores; sem a chave, ele diz com naturalidade que não consegue pesquisar.
+  - **Leitura de links:** busca a página com proteção contra SSRF e revalidação a cada redirecionamento.
+- **Alternativa Claude:** `LLM_PROVIDER=anthropic` usa `claude-haiku-5-5` (US$ 0,10 / US$ 0,50 por milhão de tokens), com `effort: low`. Precisa de `ANTHROPIC_API_KEY`: os modelos Claude não rodam na NVIDIA NIM. No Haiku, as ferramentas web usam as variantes básicas (`web_search_20250305` e `web_fetch_20250910`), e o fallback de recusa no servidor não existe.
 - **OTP (RF-02):** em desenvolvimento, o código vai pelo próprio canal. Em produção, use `setOtpSender()` com um provedor de SMS, para o código provar a posse do número.
 - **Voz (RF-07):** a NVIDIA foi testada com nota de voz real em pt-BR (OGG/Opus e WAV), com resposta em cerca de 1,3 s. No Hugging Face a autenticação funciona, mas a conta está sem créditos de Inference Providers (402).
 - **WhatsApp fora da janela de 24h:** lembretes enviados mais de 24h depois da última mensagem do usuário precisam de um *message template* aprovado pela Meta. Ainda falta criar o template e usá-lo em `jobs/reminders.ts`.

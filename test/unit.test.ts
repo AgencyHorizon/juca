@@ -178,3 +178,50 @@ describe("ferramentas web por modelo", async () => {
     expect(types("claude-sonnet-5-5")).toEqual(["web_search_20260209", "web_fetch_20260209"]);
   });
 });
+
+describe("respostas naturais no onboarding", async () => {
+  const { YES, NO, resolveTimezone } = await import("../src/core/onboarding.js");
+  it("reconhece sim em várias formas", () => {
+    for (const t of ["estou", "Estou sim", "tô", "to", "isso mesmo", "uhum", "sim", "s", "Aceito", "é sim", "com certeza"]) expect(YES.test(t), t).toBe(true);
+  });
+  it("reconhece não e não confunde palavras", () => {
+    for (const t of ["não", "nao estou", "não, estou em Lisboa", "n"]) expect(NO.test(t), t).toBe(true);
+    for (const t of ["sopa", "torta", "estourou", "nada a ver"]) expect(YES.test(t), t).toBe(false);
+  });
+  it("cidade explícita vence o sim", () => {
+    expect(resolveTimezone("estou em Lisboa")).toBe("Europe/Lisbon");
+  });
+});
+
+describe("agente NVIDIA", async () => {
+  const { normalizeArgs } = await import("../src/agent/tools.js");
+  const { stripReasoning, toFunctionTools } = await import("../src/agent/nvidia.js");
+  const { isPrivate } = await import("../src/agent/web.js");
+  it("normaliza argumentos de modelos abertos", () => {
+    expect(normalizeArgs({ recurrence: "None", text: "x" })).toEqual({ recurrence: null, text: "x" });
+    expect(normalizeArgs({ recurrence: "NULL" })).toEqual({ recurrence: null });
+    expect(normalizeArgs({ items: "leite, pão e café" })).toEqual({ items: ["leite", "pão", "café"] });
+    expect(normalizeArgs({ reminder_id: "12", item_numbers: ["1", "3"] })).toEqual({ reminder_id: 12, item_numbers: [1, 3] });
+  });
+  it("remove raciocínio exposto", () => {
+    expect(stripReasoning("<think>hmm</think>Oi!")).toBe("Oi!");
+  });
+  it("converte ferramentas para function calling", () => {
+    const [t] = toFunctionTools([{ name: "a", description: "d", input_schema: { type: "object", properties: {} } } as any]);
+    expect(t).toEqual({ type: "function", function: { name: "a", description: "d", parameters: { type: "object", properties: {} } } });
+  });
+  it("bloqueia SSRF para IPs privados", () => {
+    for (const ip of ["127.0.0.1", "10.0.0.5", "192.168.1.1", "172.20.0.1", "169.254.169.254", "::1", "::ffff:10.0.0.1"]) expect(isPrivate(ip), ip).toBe(true);
+    expect(isPrivate("8.8.8.8")).toBe(false);
+  });
+});
+
+describe("prompts", async () => {
+  const { PROMPTS } = await import("../src/agent/prompts.js");
+  it("v2 deriva de v1 com as substituições aplicadas", () => {
+    expect(PROMPTS.v2).not.toBe(PROMPTS.v1);
+    expect(PROMPTS.v2).toContain("get_weather");
+    expect(PROMPTS.v2).toContain('nunca de "Juca"');
+    expect(PROMPTS.v2).not.toContain("para clima, notícias, preços, horários e fatos recentes, use web_search");
+  });
+});

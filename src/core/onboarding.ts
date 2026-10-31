@@ -28,8 +28,10 @@ export const TERMS_SUMMARY = [
   "Se concorda e tem 18 anos ou mais, responda *ACEITO*.",
 ].join("\n");
 
-const YES = /^(sim|s|aceito|aceitar|concordo|ok|pode|claro|isso|confirmo|yes|y)\b/i;
-const NO = /^(n[aã]o|nao|n|no|recuso)\b/i;
+// Respostas naturais em pt-BR ("estou", "tô", "isso mesmo", "uhum"…). (?!\p{L}) em vez de \b: \b não entende acentos.
+export const YES =
+  /^(sim|s|aceito|aceitar|concordo|ok|okay|pode|claro|isso|confirmo|exato|certo|correto|positivo|afirmativo|com certeza|estou|est[aá]|t[oô]|sou|[eé] sim|uhum|aham|beleza|blz|bora|yes|y|yep)(?!\p{L})/iu;
+export const NO = /^(n[aã]o|nao|n|nope|no|negativo|recuso|nem)(?!\p{L})/iu;
 
 const CITY_TZ: Record<string, string> = {
   "sao paulo": "America/Sao_Paulo", "rio": "America/Sao_Paulo", "rio de janeiro": "America/Sao_Paulo", "brasilia": "America/Sao_Paulo",
@@ -184,12 +186,13 @@ export async function handleOnboarding(user: User, msg: InboundMessage, otp: Otp
       break;
     }
     case "ask_timezone": {
-      let tz: string | null = null;
-      if (YES.test(text)) tz = DEFAULT_TIMEZONE;
-      else if (NO.test(text) && text.split(/\s+/).length <= 2) {
+      // cidade explícita vence ("estou em Lisboa"); depois sim/não
+      let tz: string | null = resolveTimezone(text);
+      if (!tz && NO.test(text)) {
         replies.push({ text: "Beleza! Em que cidade você está?" });
         break;
-      } else tz = resolveTimezone(text);
+      }
+      if (!tz && YES.test(text)) tz = DEFAULT_TIMEZONE;
       if (!tz) {
         replies.push({ text: "Não reconheci essa cidade. Pode mandar outra cidade próxima? (ou “Brasília” se for o horário de Brasília)" });
         break;

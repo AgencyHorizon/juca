@@ -9,9 +9,13 @@ const Env = z.object({
   DATA_ENCRYPTION_KEY: z.string().default(""),
   ADMIN_TOKEN: z.string().default(""),
 
+  // Provedor do "cérebro": nvidia (padrão) ou anthropic (exige ANTHROPIC_API_KEY)
+  LLM_PROVIDER: z.enum(["nvidia", "anthropic"]).default("nvidia"),
+  NVIDIA_LLM_MODEL: z.string().default("nvidia/nemotron-3.5-lightning-30b-a3b"),
+  NVIDIA_LLM_FALLBACK_MODEL: z.string().default("mistralai/mistral-large-4-1t-a52b"),
   JUCA_MODEL: z.string().default("claude-haiku-5-5"),
   JUCA_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),
-  PROMPT_VERSION: z.string().default("v1"),
+  PROMPT_VERSION: z.string().default("v2"),
 
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
@@ -25,6 +29,8 @@ const Env = z.object({
   NVIDIA_API_KEY: z.string().default(""),
   NVIDIA_ASR_FUNCTION_ID: z.string().default("b702f636-f60c-4a3d-a6f4-f3568c13bd7d"), // whisper-large-v3
   HF_TOKEN: z.string().default(""),
+  // Pesquisa web geral (opcional): Brave Search API. Sem chave, o Juca só tem clima + leitura de links.
+  BRAVE_SEARCH_API_KEY: z.string().default(""),
   HF_ASR_MODEL: z.string().default("openai/whisper-large-v3"),
   STT_LANGUAGE: z.string().default("pt"),
 
