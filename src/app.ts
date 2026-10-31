@@ -9,6 +9,9 @@ import { safeEqual } from "./lib/crypto.js";
 import { logger } from "./lib/logger.js";
 import { registry } from "./lib/metrics.js";
 import { redis } from "./lib/redis.js";
+import { channels } from "./channels/index.js";
+import { channelsOf } from "./core/users.js";
+import { handleCallback } from "./integrations/google/oauth.js";
 
 export function buildServer() {
   const app = Fastify({ loggerInstance: logger, bodyLimit: 1_000_000, trustProxy: true });
@@ -61,6 +64,32 @@ export function buildServer() {
     return reply.code(200).send();
   });
 
+  // --- OAuth do Google (conexão do e-mail) ---
+  app.get("/oauth/google/callback", async (req, reply) => {
+    const q = req.query as { state?: string; code?: string; error?: string };
+    reply.type("text/html; charset=utf-8");
+    if (q.error || !q.state || !q.code) {
+      return reply.code(400).send(page("Conexão cancelada", "Nada foi conectado. Se quiser tentar de novo, peça um novo link ao Juca."));
+    }
+    try {
+      const { userId, email } = await handleCallback(q.state, q.code);
+      const chan = (await channelsOf(userId))[0];
+      if (chan)
+        await channels[chan.channel]
+          .send(chan.external_id, `Pronto! Conectei o e-mail ${email} ✅ Agora posso ler, buscar e resumir seus e-mails e preparar rascunhos. Quer que eu veja o que chegou de novo?`)
+          .catch((e) => logger.error({ err: e }, "falha ao avisar conexão"));
+      return page("E-mail conectado ✅", `O Juca agora tem acesso a ${escapeHtml(email)}. Pode voltar pro chat.`);
+    } catch (e) {
+      logger.error({ err: e }, "falha no callback do OAuth");
+      return reply.code(400).send(page("Não deu certo", "O link pode ter expirado. Peça um novo link ao Juca."));
+    }
+  });
+
   app.register(adminRoutes, { prefix: "/admin" });
   return app;
 }
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const page = (title: string, text: string) =>
+  `<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Juca</title>` +
+  `<body style="font-family:system-ui;max-width:28rem;margin:4rem auto;padding:0 1rem;text-align:center"><h1>${escapeHtml(title)}</h1><p>${text}</p></body></html>`;

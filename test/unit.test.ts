@@ -225,3 +225,14 @@ describe("prompts", async () => {
     expect(PROMPTS.v2).not.toContain("para clima, notícias, preços, horários e fatos recentes, use web_search");
   });
 });
+
+describe("calendário de próximos dias no contexto", async () => {
+  const { upcomingDays } = await import("../src/core/time.js");
+  const { DateTime } = await import("luxon");
+  it("lista os 7 dias seguintes com dia da semana correto", () => {
+    const now = DateTime.fromISO("2026-10-31T19:40", { zone: "America/Recife" }); // sábado
+    const s = upcomingDays("America/Recife", 7, now);
+    expect(s.startsWith("amanhã=dom 01/11, seg 02/11, ter 03/11")).toBe(true);
+    expect(s.split(", ")).toHaveLength(7);
+  });
+});

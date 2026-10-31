@@ -11,6 +11,8 @@ import { updateUser, type PendingAction, type User } from "../core/users.js";
 import { toolCalls } from "../lib/metrics.js";
 import { config } from "../config.js";
 import { weatherForecast, webFetch, webSearch } from "./web.js";
+import { executeEmailTool } from "./email-tools.js";
+import { isEnabled } from "../core/flags.js";
 
 type Tool = Anthropic.Beta.BetaTool;
 
@@ -314,8 +316,13 @@ export async function executeTool(user: User, name: string, input: unknown): Pro
           throw new DomainError("fetch_failed", `Não consegui abrir o link (${(e as Error).message}).`);
         }
       }
-      default:
+      default: {
+        if (name.startsWith("email_")) {
+          const out = await executeEmailTool(user, name, rawInput, { canSend: await isEnabled("email_send", user) });
+          if (out) return out;
+        }
         return { content: JSON.stringify({ error: "unknown_tool" }), isError: true };
+      }
     }
   }
 }

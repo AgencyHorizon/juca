@@ -15,7 +15,7 @@ const Env = z.object({
   NVIDIA_LLM_FALLBACK_MODEL: z.string().default("mistralai/mistral-large-4-1t-a52b"),
   JUCA_MODEL: z.string().default("claude-haiku-5-5"),
   JUCA_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),
-  PROMPT_VERSION: z.string().default("v2"),
+  PROMPT_VERSION: z.string().default("v3"),
 
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
@@ -31,6 +31,9 @@ const Env = z.object({
   HF_TOKEN: z.string().default(""),
   // Pesquisa web geral (opcional): Brave Search API. Sem chave, o Juca só tem clima + leitura de links.
   BRAVE_SEARCH_API_KEY: z.string().default(""),
+  // E-mail (Gmail via OAuth do Google). Redirect: {PUBLIC_BASE_URL}/oauth/google/callback
+  GOOGLE_CLIENT_ID: z.string().default(""),
+  GOOGLE_CLIENT_SECRET: z.string().default(""),
   HF_ASR_MODEL: z.string().default("openai/whisper-large-v3"),
   STT_LANGUAGE: z.string().default("pt"),
 

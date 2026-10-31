@@ -28,6 +28,7 @@ WhatsApp / Telegram
 - **`src/agent/`**: prompt versionado, ferramentas e o loop de tool use. O provedor padrão é a NVIDIA NIM (`nvidia.ts`), com a API da Claude como alternativa. As ferramentas locais de clima, leitura de links e busca ficam em `web.ts`.
 - **`src/core/`**: domínio (usuários, onboarding, lembretes, listas, memória, privacidade, flags, rate limit, auditoria).
 - **`src/channels/`**: adaptadores e formatação por canal.
+- **`src/integrations/google/`**: e-mail (Gmail) via OAuth. Veja [`docs/email.md`](docs/email.md) para a configuração e as proteções.
 - **`src/speech/`**: transcrição de voz. Usa a NVIDIA NIM (`whisper-large-v3` via Riva gRPC) e, se ela falhar, o Hugging Face. Os protos do Riva ficam em `proto/`.
 - **`migrations/`**: schema SQL.
 
@@ -101,6 +102,8 @@ Todas as rotas exigem `Authorization: Bearer $ADMIN_TOKEN`.
 | RN-12/13/14/23 | `core/reminders.ts`, `core/conversation.ts`, `core/time.ts` |
 
 ## Pendências e decisões em aberto
+
+- **E-mail:** a estrutura está pronta e testada (com o Google simulado). Para funcionar de verdade, faltam `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`; o passo a passo está em [`docs/email.md`](docs/email.md). O envio fica desligado por padrão (flag `email_send`, RN-10). Calendário pode reaproveitar o mesmo OAuth.
 
 - **Cérebro (LLM):** o padrão é a **NVIDIA NIM** com `nvidia/nemotron-3.5-lightning-30b-a3b` (de 2 a 4 s por resposta nos testes). O `mistralai/mistral-large-4-1t-a52b` é a reserva automática: tem boa qualidade, mas leva de 15 a 35 s. Os dois foram escolhidos num benchmark dos 54 modelos de chat da conta, testando chamada de ferramentas em pt-BR.
   - **Clima:** vem do Open-Meteo, API pública e sem chave.

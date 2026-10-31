@@ -14,6 +14,8 @@ import { deleteAllUserData } from "./privacy.js";
 import { checkRateLimit } from "./ratelimit.js";
 import { findOrCreateByChannel, updateUser, type User } from "./users.js";
 import { transcriberFromEnv, type Transcriber } from "../speech/index.js";
+import { sendDraft } from "../integrations/google/gmail.js";
+import { disconnect as disconnectEmail } from "../integrations/google/oauth.js";
 
 /**
  * Transcrição de áudio (RF-07). Padrão: NVIDIA NIM (whisper-large-v3) com Hugging Face como
@@ -209,6 +211,21 @@ async function executeConfirmed(user: User, msg: InboundMessage, pending: NonNul
       await clearList(user.id, String(pending.args.list_name));
       await audit(user.id, "user", "list_cleared");
       await send(msg, { text: `Feito, apaguei a lista "${pending.args.list_name}".` });
+      return;
+    case "send_email": {
+      // checa a flag de novo: pode ter sido desligada entre o pedido e a confirmação
+      if (!(await isEnabled("email_send", user))) {
+        await send(msg, { text: "O envio de e-mails não está habilitado pra sua conta. O rascunho continua salvo no seu Gmail 😉" });
+        return;
+      }
+      await sendDraft(user.id, String(pending.args.draft_id));
+      await audit(user.id, "user", "email_sent", { draft_id: pending.args.draft_id }); // sem destinatário/assunto: nada de PII no audit
+      await send(msg, { text: `Enviado ✅ (para ${pending.args.to})` });
+      return;
+    }
+    case "disconnect_email":
+      await disconnectEmail(user.id);
+      await send(msg, { text: "Pronto, desconectei seu e-mail e apaguei as credenciais. Se quiser reconectar, é só pedir." });
       return;
     default:
       await send(msg, { text: FRIENDLY_FAILURE });

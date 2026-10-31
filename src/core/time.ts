@@ -18,6 +18,16 @@ export function nowLocalDescription(tz: string, now = DateTime.now()): string {
   return now.setZone(tz).setLocale("pt-BR").toFormat("cccc, dd 'de' LLLL 'de' yyyy, HH:mm") + ` (${tz})`;
 }
 
+/** "amanhã=dom 01/11, seg 02/11, ter 03/11, …" no fuso do usuário. */
+export function upcomingDays(tz: string, count = 7, now = DateTime.now()): string {
+  const base = now.setZone(tz).setLocale("pt-BR").startOf("day");
+  return Array.from({ length: count }, (_, i) => {
+    const d = base.plus({ days: i + 1 });
+    const label = `${d.toFormat("ccc").replace(".", "")} ${d.toFormat("dd/LL")}`;
+    return i === 0 ? `amanhã=${label}` : label;
+  }).join(", ");
+}
+
 export function isValidTimezone(tz: string): boolean {
   return DateTime.local().setZone(tz).isValid;
 }

@@ -2,13 +2,15 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config.js";
 import { isEnabled } from "../core/flags.js";
 import { listFacts } from "../core/memories.js";
-import { nowLocalDescription } from "../core/time.js";
+import { nowLocalDescription, upcomingDays } from "../core/time.js";
 import type { PendingAction, User } from "../core/users.js";
 import type { StoredMessage } from "../core/conversation.js";
 import { logger } from "../lib/logger.js";
 import { errors, llmTokens } from "../lib/metrics.js";
 import { systemPrompt, userContext } from "./prompts.js";
 import { runNvidiaAgent } from "./nvidia.js";
+import { emailTools } from "./email-tools.js";
+import { getConnection, googleConfigured } from "../integrations/google/oauth.js";
 import { CUSTOM_TOOLS, executeTool, localWebTools, serverTools } from "./tools.js";
 
 let anthropic: Anthropic | null = null; // criado sob demanda: só existe com LLM_PROVIDER=anthropic
@@ -48,18 +50,32 @@ function toMessages(history: StoredMessage[], current: string): Anthropic.Beta.B
 }
 
 export async function runAgent(user: User, history: StoredMessage[], userText: string, opts: { newSession: boolean }): Promise<AgentResult> {
-  const [facts, webSearch, linkSummary, memoryOn] = await Promise.all([
+  const [facts, webSearch, linkSummary, memoryOn, emailOn, emailSend] = await Promise.all([
     listFacts(user.id),
     isEnabled("web_search", user),
     isEnabled("link_summary", user),
     isEnabled("persistent_memory", user),
+    isEnabled("email", user),
+    isEnabled("email_send", user),
   ]);
 
-  const custom = CUSTOM_TOOLS.filter((t) => memoryOn || (t.name !== "remember_fact" && t.name !== "forget_fact"));
+  const emailAvailable = emailOn && googleConfigured();
+  const custom = [
+    ...CUSTOM_TOOLS.filter((t) => memoryOn || (t.name !== "remember_fact" && t.name !== "forget_fact")),
+    ...(emailAvailable ? emailTools({ canSend: emailSend }) : []),
+  ];
+  const conn = emailAvailable ? await getConnection(user.id) : null;
+  const emailStatus = !emailAvailable
+    ? "indisponível por enquanto (a integração ainda não foi ativada). Diga isso com naturalidade, sem sugerir alternativas inventadas."
+    : conn
+      ? `conectado (${conn.account_email}). ${emailSend ? "Pode ler, rascunhar e enviar (com confirmação)." : "Pode ler e criar rascunhos; não envia."}`
+      : "não conectado. Se a pessoa pedir algo de e-mail, use email_connect e mande o link.";
   const context = userContext({
     name: user.name,
     timezone: user.timezone,
     nowLocal: nowLocalDescription(user.timezone),
+    upcomingDays: upcomingDays(user.timezone),
+    emailStatus,
     facts: memoryOn ? facts : [],
     newSession: opts.newSession,
   });

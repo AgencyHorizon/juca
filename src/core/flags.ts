@@ -7,6 +7,9 @@ export const FLAG_DEFAULTS: Record<string, boolean> = {
   voice_transcription: true, // só atua se houver NVIDIA_API_KEY ou HF_TOKEN configurado
   recurring_reminders: true,
   persistent_memory: true,
+  email: true, // ler/buscar/resumir e criar rascunhos (exige GOOGLE_CLIENT_ID/SECRET)
+  email_send: false, // RN-10: envio em nome do usuário desligado no MVP; ligue por coorte/usuário
+
 };
 
 export async function isEnabled(flag: string, user: { id: number; cohort: string }): Promise<boolean> {

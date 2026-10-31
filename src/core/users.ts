@@ -25,7 +25,7 @@ export interface User {
 
 /** RF-18: ação irreversível aguardando "sim". Ligada ao texto exato que foi mostrado ao usuário. */
 export interface PendingAction {
-  kind: "delete_all_data" | "cancel_reminder" | "clear_list" | "forget_fact";
+  kind: "delete_all_data" | "cancel_reminder" | "clear_list" | "forget_fact" | "send_email" | "disconnect_email";
   args: Record<string, unknown>;
   prompt: string;
   expiresAt: string;
