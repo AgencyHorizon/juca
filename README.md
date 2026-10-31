@@ -1,0 +1,103 @@
+# Juca
+
+Agente pessoal de IA que **vive onde você já vive**: WhatsApp e Telegram. Não tem app nem dashboard. Você manda mensagem como mandaria para um amigo e o Juca resolve.
+
+Inspirado na Instinct. A pesquisa completa e as decisões tiradas dela estão em [`docs/pesquisa-instinct.md`](docs/pesquisa-instinct.md).
+
+## Arquitetura
+
+```
+WhatsApp / Telegram
+        │  webhook (assinatura validada)
+        ▼
+  server (Fastify) ──► fila BullMQ (Redis) ──► worker(s)
+                                                 │
+                       ┌─────────────────────────┼──────────────────────────┐
+                       ▼                         ▼                          ▼
+              onboarding determinístico   comandos determinísticos     agente (Claude API)
+              (OTP, termos, nome, fuso)   (pausar, 👍/👎, confirmação)  tool use + web_search/web_fetch
+                                                 │
+                                                 ▼
+                                   Postgres (dados cifrados AES-256-GCM)
+                                                 ▲
+                         disparador de lembretes (a cada 10s, SKIP LOCKED) + retenção (1h)
+```
+
+- **`src/app.ts`, `src/server.ts`**: servidor HTTP com os webhooks, `/health`, `/metrics` (Prometheus) e `/admin/*` (backoffice).
+- **`src/worker.ts`**: consome a fila, com lock por usuário para manter a ordem da conversa. Também dispara lembretes e roda a retenção. Escala horizontalmente.
+- **`src/agent/`**: prompt versionado, 16 ferramentas `strict` e o loop de tool use com a API da Claude.
+- **`src/core/`**: domínio (usuários, onboarding, lembretes, listas, memória, privacidade, flags, rate limit, auditoria).
+- **`src/channels/`**: adaptadores e formatação por canal.
+- **`migrations/`**: schema SQL.
+
+## Rodando localmente
+
+```bash
+cp .env.example .env          # preencha ANTHROPIC_API_KEY e os tokens dos canais
+docker compose up -d          # Postgres + Redis
+npm install
+npm run migrate
+npm run dev                   # servidor (porta 3000)
+npm run dev:worker            # worker, em outro terminal
+```
+
+Para receber webhooks localmente, exponha a porta 3000 (por exemplo com `ngrok http 3000`) e coloque a URL em `PUBLIC_BASE_URL`.
+
+- **Telegram:** crie o bot no @BotFather, defina `TELEGRAM_BOT_TOKEN` e `TELEGRAM_WEBHOOK_SECRET` e registre o webhook com `registerTelegramWebhook()`.
+- **WhatsApp Cloud API:** configure o webhook `GET/POST /webhooks/whatsapp` no app da Meta com `WHATSAPP_VERIFY_TOKEN` e `WHATSAPP_APP_SECRET`.
+
+## Testes
+
+```bash
+npm test                                   # unitários
+INTEGRATION=1 npm test                     # + ponta a ponta (precisa do docker compose rodando e migrado)
+```
+
+O teste de integração cobre:
+
+- onboarding completo (IA declarada, OTP, termos, nome, fuso);
+- idempotência;
+- conversa gravada cifrada;
+- lembrete no passado rejeitado e disparo de lembrete recorrente;
+- pausar/voltar;
+- feedback;
+- "apaga tudo" com confirmação.
+
+## Backoffice
+
+Todas as rotas exigem `Authorization: Bearer $ADMIN_TOKEN`.
+
+| Rota | Requisito |
+|---|---|
+| `GET /admin/metrics/summary` | RF-30: usuários, DAU/WAU, ativação, D7/D30, 👍/👎 por versão de prompt, tokens, latência p50/p95 |
+| `GET /admin/users?q=&status=` / `POST /admin/users/:id/block` / `unblock` / `cohort` | RF-31 |
+| `GET /admin/users/:id/conversation` | RF-32: só usuários com consentimento; o acesso é auditado |
+| `GET /admin/audit` | RNF-14 |
+| `GET /admin/flags` / `PUT /admin/flags/:key` `{scope, enabled}` | RF-33: escopo `global`, `cohort:<nome>` ou `user:<id>` |
+| `GET /metrics` | RNF-28: Prometheus |
+
+## Rastreabilidade dos requisitos
+
+| Requisito | Onde |
+|---|---|
+| RF-01..04, RN-01..04, RN-21, RN-25 | `core/onboarding.ts`, `core/users.ts` |
+| RF-05/06/08/09 | `channels/*` |
+| RF-07 | `handler.ts` → `setTranscriber()` (flag `voice_transcription`, desligada até haver um provedor de STT) |
+| RF-10..17, RF-19..24 | `agent/*`, `core/reminders.ts`, `core/lists.ts`, `core/memories.ts`, `core/conversation.ts` |
+| RF-18, RN-06 | `pending_action` + confirmação determinística em `handler.ts` |
+| RF-25, RNF-23 | `jobs/reminders.ts` (Postgres como fonte da verdade, retry com backoff) |
+| RF-26..29, RN-15..19 | `core/privacy.ts`, `handler.ts`, `jobs/retention.ts` |
+| RNF-07/24/25 | `jobs/queue.ts`, `processed_inbound`, retries do SDK e da fila |
+| RNF-09/10/12/13/14 | `lib/crypto.ts`, verificação de webhooks, `sanitizeInput` + prompt, `user_id` em toda query, trigger imutável no `audit_log` |
+| RNF-11, RN-11 | `core/ratelimit.ts` |
+| RNF-27/28/30 | `lib/logger.ts` (correlation ID), `lib/metrics.ts`, `agent/prompts.ts` + `prompt_version` gravado em cada resposta |
+| RN-12/13/14/23 | `core/reminders.ts`, `core/conversation.ts`, `core/time.ts` |
+
+## Pendências e decisões em aberto
+
+- **Custo (RNF-31, ≤ US$ 1,50/usuário/mês):** o padrão é `claude-opus-5-5` com `effort: low`, configurável em `JUCA_MODEL`/`JUCA_EFFORT`. Meça o custo real no `/admin/metrics/summary` com usuários do beta. Se passar da meta, teste `JUCA_MODEL=claude-haiku-5-5` (bem mais barato) e compare o 👍/👎 por versão.
+- **OTP (RF-02):** em desenvolvimento, o código vai pelo próprio canal. Em produção, use `setOtpSender()` com um provedor de SMS, para o código provar a posse do número.
+- **Voz (RF-07):** falta escolher um provedor de transcrição.
+- **WhatsApp fora da janela de 24h:** lembretes enviados mais de 24h depois da última mensagem do usuário precisam de um *message template* aprovado pela Meta. Ainda falta criar o template e usá-lo em `jobs/reminders.ts`.
+- **TLS 1.3 (RNF-08):** fica a cargo do proxy/ingress (o app não termina TLS).
+- **DR (RNF-26):** backups com PITR no Postgres gerenciado (RPO ≤ 15 min).
