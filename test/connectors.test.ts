@@ -259,3 +259,26 @@ describe.skipIf(!RUN)("ponta a ponta com provedores simulados", () => {
     expect((await m.pool.query("SELECT 1 FROM connections WHERE user_id=$1", [temp.id])).rowCount).toBe(0);
   });
 });
+
+describe("passagens", async () => {
+  process.env.SERPAPI_KEY = "x";
+  const { flightParams, searchFlights } = await import("../src/integrations/flights.js");
+  it("monta ida e volta e só ida em reais", () => {
+    const rt = flightParams({ origin: "rec", destination: "poa", outboundDate: "2026-12-10", returnDate: "2026-12-20" });
+    expect([rt.get("type"), rt.get("departure_id"), rt.get("currency"), rt.get("return_date")]).toEqual(["1", "REC", "BRL", "2026-12-20"]);
+    expect(flightParams({ origin: "REC", destination: "POA", outboundDate: "2026-12-10" }).get("type")).toBe("2");
+  });
+  it("ordena pelo menor preço e trata falta de resultados", async () => {
+    const real = globalThis.fetch;
+    const opt = (price: number, airline: string) => ({ price, total_duration: 200, flights: [{ airline, flight_number: "G3 1", departure_airport: { id: "REC", time: "t1" }, arrival_airport: { id: "POA", time: "t2" } }] });
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ best_flights: [opt(900, "LATAM")], other_flights: [opt(700, "GOL")], price_insights: { lowest_price: 700, price_level: "low" } }))) as any;
+    const r = await searchFlights({ origin: "REC", destination: "POA", outboundDate: "2026-12-10" });
+    expect(r.cheapest.map((c) => c.price_brl)).toEqual([700, 900]);
+    expect(r.cheapest[0]!.airlines).toBe("GOL");
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ error: "Google Flights hasn't returned any results for this query." }))) as any;
+    expect((await searchFlights({ origin: "REC", destination: "POA", outboundDate: "2026-12-10" })).found).toBe(0);
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ error: "Invalid API key" }), { status: 401 })) as any;
+    await expect(searchFlights({ origin: "REC", destination: "POA", outboundDate: "2026-12-10" })).rejects.toThrow(/401/);
+    globalThis.fetch = real;
+  });
+});

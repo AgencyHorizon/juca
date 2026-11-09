@@ -13,6 +13,7 @@ import { accounts, listItems, ownsAccount, pluggyConfigured, transactions } from
 import { createEvent, getEvent, listEvents, type GEvent } from "../integrations/google/calendar.js";
 import { draftHash, mailClients } from "../integrations/mail/index.js";
 import { cryptoPrices, fxRates, stockQuotes } from "../integrations/market.js";
+import { flightsConfigured, searchFlights } from "../integrations/flights.js";
 import { createAuthLink, GOOGLE_CALENDAR_SCOPE, listConnections, NotConnectedError, providerConfigured, type Connection, type OAuthProvider } from "../integrations/oauth.js";
 
 type Tool = Anthropic.Beta.BetaTool;
@@ -84,6 +85,7 @@ export function connectorStatus(s: ConnectorState): string {
     line("Outlook", s.outlook, s.mailEnabled && providerConfigured("microsoft"), email("microsoft")),
     line("Google Calendar", s.calendar, s.calendarEnabled && providerConfigured("google")),
     line("Bancos", s.banks.length > 0, s.bankEnabled && pluggyConfigured(), s.banks.join(", ")),
+    `- Passagens aéreas: ${flightsConfigured() ? "disponível (flight_search; só consulta preços, não compra)" : "indisponível; diga isso e não invente preços"}`,
   ].join("\n");
 }
 
@@ -172,6 +174,20 @@ export function connectorTools(st: ConnectorState): Tool[] {
       name: "market_quote",
       description: "Cotações: kind=stock para B3 (PETR4, VALE3, IBOV: ^BVSP), kind=fx para câmbio (USD-BRL), kind=crypto para cripto (bitcoin, ethereum).",
       input_schema: obj({ kind: { type: "string", enum: ["stock", "fx", "crypto"] }, symbols: { type: "array", items: { type: "string" } } }),
+    });
+  if (flightsConfigured())
+    tools.push({
+      name: "flight_search",
+      description: "Pesquisa preços de passagens aéreas, do mais barato ao mais caro. Use códigos IATA (POA, GRU, CGH, REC, GIG, BSB...). Sem return_date, busca só ida. Para monitorar preço, combine com create_routine.",
+      input_schema: obj({
+        origin: s("IATA de origem"),
+        destination: s("IATA de destino"),
+        outbound_date: s("YYYY-MM-DD"),
+        return_date: ns("YYYY-MM-DD ou null"),
+        adults: { type: "integer" },
+        max_price: { type: ["integer", "null"], description: "preço máximo em reais, ou null" },
+        nonstop_only: { type: "boolean" },
+      }),
     });
   tools.push({
     name: "create_routine",
@@ -318,6 +334,13 @@ export async function executeConnectorTool(user: User, name: string, raw: any, c
         if (!i.symbols.length) throw new DomainError("empty", "Informe o ativo.");
         return json(i.kind === "stock" ? await stockQuotes(i.symbols, tz) : i.kind === "fx" ? await fxRates(i.symbols) : await cryptoPrices(i.symbols));
       }
+      case "flight_search": {
+        const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+        const iata = z.string().regex(/^[A-Za-z]{3}$/, "use o código IATA de 3 letras");
+        const i = z.object({ origin: iata, destination: iata, outbound_date: date, return_date: date.nullish(), adults: z.number().int().min(1).max(9).nullish(), max_price: z.number().int().nullish(), nonstop_only: z.boolean().nullish() }).parse(raw);
+        if (i.outbound_date < DateTime.now().setZone(tz).toISODate()!) throw new DomainError("past_datetime", "Essa data já passou.");
+        return json(await searchFlights({ origin: i.origin, destination: i.destination, outboundDate: i.outbound_date, returnDate: i.return_date, adults: i.adults ?? 1, maxPrice: i.max_price, nonstopOnly: !!i.nonstop_only }));
+      }
       case "create_routine": {
         const i = z.object({ instruction: z.string().min(3).max(500), local_datetime: z.string(), recurrence: z.string().nullish() }).parse(raw);
         const r = await createRoutine(user.id, tz, i.instruction, i.local_datetime, i.recurrence);
@@ -340,5 +363,5 @@ export async function executeConnectorTool(user: User, name: string, raw: any, c
 
 export const CONNECTOR_TOOL_NAMES = new Set([
   "account_connect", "account_disconnect", "email_search", "email_read", "email_draft", "email_send",
-  "calendar_list", "calendar_create", "calendar_delete", "bank_accounts", "bank_transactions", "market_quote", "create_routine",
+  "calendar_list", "calendar_create", "calendar_delete", "bank_accounts", "bank_transactions", "market_quote", "flight_search", "create_routine",
 ]);

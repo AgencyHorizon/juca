@@ -15,7 +15,7 @@ const Env = z.object({
   NVIDIA_LLM_FALLBACK_MODEL: z.string().default("mistralai/mistral-large-4-1t-a52b"),
   JUCA_MODEL: z.string().default("claude-haiku-5-5"),
   JUCA_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),
-  PROMPT_VERSION: z.string().default("v4"),
+  PROMPT_VERSION: z.string().default("v5"),
 
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
@@ -43,6 +43,8 @@ const Env = z.object({
   PLUGGY_INCLUDE_SANDBOX: z.string().default("false"),
   // Cotações da B3: PETR4 e poucos outros funcionam sem token
   BRAPI_TOKEN: z.string().default(""),
+  // Passagens aéreas (SerpApi / Google Flights)
+  SERPAPI_KEY: z.string().default(""),
   // WhatsApp: versão da Graph API e template para mensagens fora da janela de 24h
   WHATSAPP_GRAPH_VERSION: z.string().default("v27.0"),
   WHATSAPP_REMINDER_TEMPLATE: z.string().default(""),
