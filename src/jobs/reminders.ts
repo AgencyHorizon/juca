@@ -1,4 +1,7 @@
+import { runAgent } from "../agent/agent.js";
 import { channels } from "../channels/index.js";
+import { WindowClosedError, type ChannelName } from "../channels/types.js";
+import { getUser } from "../core/users.js";
 import { audit } from "../core/audit.js";
 import { nextOccurrence } from "../core/time.js";
 import { pool } from "../db/pool.js";
@@ -14,6 +17,31 @@ import { remindersSent } from "../lib/metrics.js";
  */
 const BATCH = 100;
 const MAX_ATTEMPTS = 8;
+
+/** Rotina: o agente executa a instrução sem histórico. Ações consequentes ficam bloqueadas (ver ROUTINE_BLOCKED). */
+async function runRoutine(userId: number, instruction: string): Promise<string> {
+  const user = await getUser(userId);
+  if (!user) throw new Error("usuário não encontrado");
+  const r = await runAgent(user, [], `[Rotina agendada pela própria pessoa] ${instruction}`, { newSession: true, isRoutine: true });
+  return `🔁 ${r.text}`;
+}
+
+/** Tenta o canal usado mais recentemente; se ele não puder iniciar conversa, tenta o próximo. */
+async function deliver(targets: { channel: ChannelName; external_id: string; last_inbound_at: Date | null }[], text: string) {
+  let lastErr: unknown;
+  for (const t of targets) {
+    const adapter = channels[t.channel];
+    try {
+      if (adapter.sendProactive) await adapter.sendProactive(t.external_id, text, { lastInboundAt: t.last_inbound_at ? new Date(t.last_inbound_at) : null });
+      else await adapter.send(t.external_id, text);
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (!(e instanceof WindowClosedError)) throw e;
+    }
+  }
+  throw lastErr;
+}
 
 export async function dispatchDueReminders(): Promise<number> {
   const client = await pool.connect();
@@ -37,14 +65,14 @@ export async function dispatchDueReminders(): Promise<number> {
           continue;
         }
         const chan = await client.query(
-          "SELECT channel, external_id FROM channel_identities WHERE user_id = $1 ORDER BY id LIMIT 1",
+          "SELECT channel, external_id, last_inbound_at FROM channel_identities WHERE user_id = $1 ORDER BY last_inbound_at DESC NULLS LAST, id",
           [r.user_id],
         );
-        const target = chan.rows[0];
-        if (!target) throw new Error("usuário sem canal");
+        if (!chan.rows.length) throw new Error("usuário sem canal");
         const lateMin = Math.round((Date.now() - new Date(r.due_at).getTime()) / 60_000);
-        const text = `⏰ Lembrete: ${decrypt(r.text_enc)}${lateMin > 15 ? `\n(desculpa o atraso de ${lateMin} min!)` : ""}`;
-        await channels[target.channel as "whatsapp" | "telegram"].send(target.external_id, text);
+        const late = lateMin > 15 ? `\n(desculpa o atraso de ${lateMin} min!)` : "";
+        const text = r.is_routine ? await runRoutine(r.user_id, decrypt(r.text_enc)) : `⏰ Lembrete: ${decrypt(r.text_enc)}${late}`;
+        await deliver(chan.rows, text);
 
         const next = r.rrule ? nextOccurrence(r.rrule, new Date(r.due_at), r.timezone) : null;
         if (next) {

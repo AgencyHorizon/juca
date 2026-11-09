@@ -5,7 +5,8 @@ import { listFacts } from "./memories.js";
 import { listReminders } from "./reminders.js";
 import { formatLocal } from "./time.js";
 import type { User } from "./users.js";
-import { disconnect as disconnectEmail, getConnection } from "../integrations/google/oauth.js";
+import { disconnectAll, listConnections } from "../integrations/oauth.js";
+import { disconnectBanks, listItems } from "../integrations/finance/pluggy.js";
 
 /** RF-27 / RNF-18: o que o Juca sabe sobre o usuário, em linguagem humana. */
 export async function describeUserData(user: User): Promise<string> {
@@ -14,11 +15,13 @@ export async function describeUserData(user: User): Promise<string> {
     listReminders(user.id),
     allLists(user.id),
     query<{ n: string }>("SELECT count(*) n FROM messages WHERE user_id = $1", [user.id]),
-    getConnection(user.id),
+    listConnections(user.id),
   ]);
+  const banks = await listItems(user.id);
   const lines = [
     `Perfil: nome ${user.name ?? "(não informado)"}, fuso ${user.timezone}, telefone ${user.phone ? "verificado" : "não vinculado"}.`,
-    `E-mail conectado: ${email ? `${email.account_email} (leitura e rascunhos; não guardo seus e-mails, só leio quando você pede)` : "nenhum"}.`,
+    `Contas conectadas: ${email.length ? email.map((c) => c.account_email).join(", ") : "nenhuma"} (não guardo seus e-mails, só leio quando você pede).`,
+    `Bancos conectados: ${banks.length ? banks.map((b) => b.connector_name).join(", ") : "nenhum"} (só consulta; saldos e extratos não ficam guardados).`,
     `Fatos que você me contou: ${facts.length ? facts.map((f) => `${f.key} = ${f.value}`).join("; ") : "nenhum"}.`,
     `Lembretes ativos: ${reminders.length}.`,
     `Listas: ${lists.length ? lists.map((l) => `${l.name} (${l.pending} pendentes)`).join(", ") : "nenhuma"}.`,
@@ -57,7 +60,8 @@ export async function deleteAllUserData(userId: number) {
 
 export async function purgeUser(userId: number) {
   // revoga o acesso ao Gmail no Google antes de apagar (não basta apagar o token localmente)
-  await disconnectEmail(userId).catch(() => {});
+  await disconnectAll(userId).catch(() => {});
+  await disconnectBanks(userId).catch(() => {});
   // ON DELETE CASCADE remove canais, sessões, mensagens, lembretes, listas, memórias e conexões
   await query("DELETE FROM users WHERE id = $1", [userId]);
   await audit(userId, "system", "data_deleted");

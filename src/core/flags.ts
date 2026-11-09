@@ -7,8 +7,11 @@ export const FLAG_DEFAULTS: Record<string, boolean> = {
   voice_transcription: true, // só atua se houver NVIDIA_API_KEY ou HF_TOKEN configurado
   recurring_reminders: true,
   persistent_memory: true,
-  email: true, // ler/buscar/resumir e criar rascunhos (exige GOOGLE_CLIENT_ID/SECRET)
-  email_send: false, // RN-10: envio em nome do usuário desligado no MVP; ligue por coorte/usuário
+  email: true, // Gmail e Outlook: ler, buscar e criar rascunhos
+  email_send: true, // enviar, sempre com confirmação do texto exato (substitui a RN-10 do MVP)
+  calendar: true,
+  bank: true, // somente leitura, via Open Finance
+  market: true,
 
 };
 

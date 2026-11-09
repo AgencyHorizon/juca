@@ -12,10 +12,12 @@ import { clearList } from "./lists.js";
 import { handleOnboarding, type OtpSender, type Reply } from "./onboarding.js";
 import { deleteAllUserData } from "./privacy.js";
 import { checkRateLimit } from "./ratelimit.js";
-import { findOrCreateByChannel, updateUser, type User } from "./users.js";
+import { findOrCreateByChannel, touchChannel, updateUser, type User } from "./users.js";
 import { transcriberFromEnv, type Transcriber } from "../speech/index.js";
-import { sendDraft } from "../integrations/google/gmail.js";
-import { disconnect as disconnectEmail } from "../integrations/google/oauth.js";
+import { disconnectBanks } from "../integrations/finance/pluggy.js";
+import { createEvent, deleteEvent, type EventInput } from "../integrations/google/calendar.js";
+import { draftHash, mailClients } from "../integrations/mail/index.js";
+import { disconnect as disconnectAccount, type OAuthProvider } from "../integrations/oauth.js";
 
 /**
  * Transcrição de áudio (RF-07). Padrão: NVIDIA NIM (whisper-large-v3) com Hugging Face como
@@ -76,6 +78,8 @@ export async function handleInbound(msg: InboundMessage): Promise<void> {
       if (store) store.userId = user.id;
       if (user.status === "blocked") return;
       await updateUser(user.id, { last_seen_at: new Date() });
+      await touchChannel(user.id, msg.channel, msg.externalUserId);
+      void channels[msg.channel].ack?.(msg).catch((e) => logger.warn({ err: e }, "falha no ack do canal"));
 
       const rl = await checkRateLimit(user.id);
       if (!rl.allowed) {
@@ -190,7 +194,7 @@ async function handleActive(user: User, msg: InboundMessage, started: number) {
     sessionId: session.id,
     role: "assistant",
     channel: msg.channel,
-    text: result.text,
+    text: result.sensitive ? "[resposta com dados bancários, não armazenada]" : result.text,
     promptVersion: config.PROMPT_VERSION,
     model: result.model,
     inputTokens: result.usage.input,
@@ -215,17 +219,37 @@ async function executeConfirmed(user: User, msg: InboundMessage, pending: NonNul
     case "send_email": {
       // checa a flag de novo: pode ter sido desligada entre o pedido e a confirmação
       if (!(await isEnabled("email_send", user))) {
-        await send(msg, { text: "O envio de e-mails não está habilitado pra sua conta. O rascunho continua salvo no seu Gmail 😉" });
+        await send(msg, { text: "O envio de e-mails não está habilitado pra sua conta. O rascunho continua salvo na sua caixa 😉" });
         return;
       }
-      await sendDraft(user.id, String(pending.args.draft_id));
-      await audit(user.id, "user", "email_sent", { draft_id: pending.args.draft_id }); // sem destinatário/assunto: nada de PII no audit
+      const client = mailClients[pending.args.provider as OAuthProvider];
+      const draftId = String(pending.args.draft_id);
+      // A aprovação vale para o texto mostrado: se o rascunho mudou depois da pergunta, não envia.
+      if (draftHash(await client.getDraft(user.id, draftId)) !== pending.args.hash) {
+        await send(msg, { text: "Esse rascunho mudou depois que te mostrei, então não enviei. Quer que eu mostre de novo?" });
+        return;
+      }
+      await client.sendDraft(user.id, draftId);
+      await audit(user.id, "user", "email_sent", { provider: pending.args.provider }); // sem destinatário/assunto: nada de PII no audit
       await send(msg, { text: `Enviado ✅ (para ${pending.args.to})` });
       return;
     }
-    case "disconnect_email":
-      await disconnectEmail(user.id);
-      await send(msg, { text: "Pronto, desconectei seu e-mail e apaguei as credenciais. Se quiser reconectar, é só pedir." });
+    case "disconnect_account": {
+      const service = String(pending.args.service);
+      if (service === "banco") await disconnectBanks(user.id);
+      else await disconnectAccount(user.id, service === "gmail" ? "google" : "microsoft");
+      await send(msg, { text: "Pronto, desconectei e apaguei as credenciais. Se quiser reconectar, é só pedir." });
+      return;
+    }
+    case "calendar_create":
+      await createEvent(user.id, pending.args as unknown as EventInput);
+      await audit(user.id, "user", "calendar_event_created", { with_invites: true });
+      await send(msg, { text: "Evento criado e convites enviados ✅" });
+      return;
+    case "calendar_delete":
+      await deleteEvent(user.id, String(pending.args.event_id), !!pending.args.notify);
+      await audit(user.id, "user", "calendar_event_deleted");
+      await send(msg, { text: "Evento apagado ✅" });
       return;
     default:
       await send(msg, { text: FRIENDLY_FAILURE });

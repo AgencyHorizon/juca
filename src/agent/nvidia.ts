@@ -4,6 +4,7 @@ import type { PendingAction, User } from "../core/users.js";
 import { logger } from "../lib/logger.js";
 import { errors, llmTokens } from "../lib/metrics.js";
 import { executeTool, type ToolOutcome } from "./tools.js";
+import type { ToolContext } from "./connector-tools.js";
 import type Anthropic from "@anthropic-ai/sdk";
 
 /**
@@ -63,6 +64,7 @@ export async function runNvidiaAgent(p: {
   history: StoredMessage[];
   userText: string;
   tools: Anthropic.Beta.BetaTool[];
+  ctx: ToolContext;
 }): Promise<NvidiaResult> {
   const tools = toFunctionTools(p.tools);
   const messages: ChatMessage[] = [{ role: "system", content: p.system }];
@@ -107,7 +109,7 @@ export async function runNvidiaAgent(p: {
           return { content: JSON.stringify({ error: "invalid_json", message: "Argumentos não são JSON válido." }), isError: true };
         }
         try {
-          return await executeTool(p.user, c.function.name, args);
+          return await executeTool(p.user, c.function.name, args, p.ctx);
         } catch (e) {
           errors.inc({ where: `tool:${c.function.name}` });
           logger.error({ err: e, tool: c.function.name }, "falha na ferramenta");

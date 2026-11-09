@@ -25,7 +25,7 @@ export interface User {
 
 /** RF-18: ação irreversível aguardando "sim". Ligada ao texto exato que foi mostrado ao usuário. */
 export interface PendingAction {
-  kind: "delete_all_data" | "cancel_reminder" | "clear_list" | "forget_fact" | "send_email" | "disconnect_email";
+  kind: "delete_all_data" | "cancel_reminder" | "clear_list" | "forget_fact" | "send_email" | "disconnect_account" | "calendar_create" | "calendar_delete";
   args: Record<string, unknown>;
   prompt: string;
   expiresAt: string;
@@ -75,6 +75,11 @@ export async function updateUser(id: number, patch: Record<string, unknown>): Pr
   });
   const r = await query<User>(`UPDATE users SET ${sets} WHERE id = $1 RETURNING *`, [id, ...values]);
   return r.rows[0]!;
+}
+
+/** Registra a última mensagem recebida no canal (janela de 24h do WhatsApp e canal preferido para avisos). */
+export async function touchChannel(userId: number, channel: ChannelName, externalId: string) {
+  await query("UPDATE channel_identities SET last_inbound_at = now() WHERE user_id = $1 AND channel = $2 AND external_id = $3", [userId, channel, externalId]);
 }
 
 export async function channelsOf(userId: number): Promise<{ channel: ChannelName; external_id: string }[]> {

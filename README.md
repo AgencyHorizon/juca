@@ -28,7 +28,7 @@ WhatsApp / Telegram
 - **`src/agent/`**: prompt versionado, ferramentas e o loop de tool use. O provedor padrão é a NVIDIA NIM (`nvidia.ts`), com a API da Claude como alternativa. As ferramentas locais de clima, leitura de links e busca ficam em `web.ts`.
 - **`src/core/`**: domínio (usuários, onboarding, lembretes, listas, memória, privacidade, flags, rate limit, auditoria).
 - **`src/channels/`**: adaptadores e formatação por canal.
-- **`src/integrations/google/`**: e-mail (Gmail) via OAuth. Veja [`docs/email.md`](docs/email.md) para a configuração e as proteções.
+- **`src/integrations/`**: Gmail, Outlook, Google Calendar, bancos (Pluggy) e cotações. A modelagem está em [`docs/modelagem-grokbot.md`](docs/modelagem-grokbot.md) e a ativação em [`docs/conectores.md`](docs/conectores.md). O adapter da Meta para o WhatsApp está em [`docs/whatsapp.md`](docs/whatsapp.md).
 - **`src/speech/`**: transcrição de voz. Usa a NVIDIA NIM (`whisper-large-v3` via Riva gRPC) e, se ela falhar, o Hugging Face. Os protos do Riva ficam em `proto/`.
 - **`migrations/`**: schema SQL.
 
@@ -103,7 +103,7 @@ Todas as rotas exigem `Authorization: Bearer $ADMIN_TOKEN`.
 
 ## Pendências e decisões em aberto
 
-- **E-mail:** a estrutura está pronta e testada (com o Google simulado). Para funcionar de verdade, faltam `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`; o passo a passo está em [`docs/email.md`](docs/email.md). O envio fica desligado por padrão (flag `email_send`, RN-10). Calendário pode reaproveitar o mesmo OAuth.
+- **Conectores:** prontos e testados com os provedores simulados. Para funcionarem de verdade, faltam as credenciais de cada serviço; veja [`docs/conectores.md`](docs/conectores.md).
 
 - **Cérebro (LLM):** o padrão é a **NVIDIA NIM** com `nvidia/nemotron-3.5-lightning-30b-a3b` (de 2 a 4 s por resposta nos testes). O `mistralai/mistral-large-4-1t-a52b` é a reserva automática: tem boa qualidade, mas leva de 15 a 35 s. Os dois foram escolhidos num benchmark dos 54 modelos de chat da conta, testando chamada de ferramentas em pt-BR.
   - **Clima:** vem do Open-Meteo, API pública e sem chave.
@@ -112,6 +112,6 @@ Todas as rotas exigem `Authorization: Bearer $ADMIN_TOKEN`.
 - **Alternativa Claude:** `LLM_PROVIDER=anthropic` usa `claude-haiku-5-5` (US$ 0,10 / US$ 0,50 por milhão de tokens), com `effort: low`. Precisa de `ANTHROPIC_API_KEY`: os modelos Claude não rodam na NVIDIA NIM. No Haiku, as ferramentas web usam as variantes básicas (`web_search_20250305` e `web_fetch_20250910`), e o fallback de recusa no servidor não existe.
 - **OTP (RF-02):** em desenvolvimento, o código vai pelo próprio canal. Em produção, use `setOtpSender()` com um provedor de SMS, para o código provar a posse do número.
 - **Voz (RF-07):** a NVIDIA foi testada com nota de voz real em pt-BR (OGG/Opus e WAV), com resposta em cerca de 1,3 s. No Hugging Face a autenticação funciona, mas a conta está sem créditos de Inference Providers (402).
-- **WhatsApp fora da janela de 24h:** lembretes enviados mais de 24h depois da última mensagem do usuário precisam de um *message template* aprovado pela Meta. Ainda falta criar o template e usá-lo em `jobs/reminders.ts`.
+- **WhatsApp fora da janela de 24h:** falta criar e aprovar o template na Meta; veja [`docs/whatsapp.md`](docs/whatsapp.md).
 - **TLS 1.3 (RNF-08):** fica a cargo do proxy/ingress (o app não termina TLS).
 - **DR (RNF-26):** backups com PITR no Postgres gerenciado (RPO ≤ 15 min).

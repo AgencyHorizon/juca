@@ -65,6 +65,9 @@ export const telegram: ChannelAdapter = {
       await call("sendMessage", { chat_id: chatId, text: part, reply_markup });
     }
   },
+  async ack(msg) {
+    await call("sendChatAction", { chat_id: msg.externalUserId, action: "typing" });
+  },
   async downloadAudio(fileId) {
     const info = await call("getFile", { file_id: fileId });
     const res = await fetch(`https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${info.result.file_path}`);

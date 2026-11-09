@@ -8,6 +8,7 @@ export interface Reminder {
   text: string;
   dueAt: Date;
   rrule: string | null;
+  isRoutine: boolean;
 }
 
 export class DomainError extends Error {
@@ -17,10 +18,13 @@ export class DomainError extends Error {
 }
 
 function row(r: any): Reminder {
-  return { id: Number(r.id), text: decrypt(r.text_enc), dueAt: r.due_at, rrule: r.rrule };
+  return { id: Number(r.id), text: decrypt(r.text_enc), dueAt: r.due_at, rrule: r.rrule, isRoutine: !!r.is_routine };
 }
 
-export async function createReminder(userId: number, tz: string, text: string, localDateTime: string, rrule?: string | null): Promise<Reminder> {
+export const createRoutine = (userId: number, tz: string, instruction: string, localDateTime: string, rrule?: string | null) =>
+  createReminder(userId, tz, instruction, localDateTime, rrule, true);
+
+export async function createReminder(userId: number, tz: string, text: string, localDateTime: string, rrule?: string | null, isRoutine = false): Promise<Reminder> {
   const due = localToUtc(localDateTime, tz);
   if (!due) throw new DomainError("invalid_datetime", "Data/hora inválida.");
   // RN-13: horário no passado é rejeitado (tolerância de 30s)
@@ -32,8 +36,8 @@ export async function createReminder(userId: number, tz: string, text: string, l
     throw new DomainError("limit_reached", `Limite de ${config.MAX_ACTIVE_REMINDERS} lembretes ativos atingido.`);
   }
   const r = await query(
-    "INSERT INTO reminders(user_id, text_enc, due_at, rrule) VALUES ($1,$2,$3,$4) RETURNING *",
-    [userId, encrypt(text), due.toJSDate(), rrule ?? null],
+    "INSERT INTO reminders(user_id, text_enc, due_at, rrule, is_routine) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+    [userId, encrypt(text), due.toJSDate(), rrule ?? null, isRoutine],
   );
   return row(r.rows[0]);
 }

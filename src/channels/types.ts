@@ -20,8 +20,19 @@ export interface OutboundOptions {
   quickReplies?: string[];
 }
 
+/** O canal não pode iniciar conversa agora (WhatsApp fora da janela de 24h e sem template). */
+export class WindowClosedError extends Error {
+  constructor() {
+    super("janela de 24h fechada e nenhum template configurado");
+  }
+}
+
 export interface ChannelAdapter {
   name: ChannelName;
   send(externalUserId: string, text: string, opts?: OutboundOptions): Promise<void>;
+  /** Mensagem iniciada pelo Juca (lembrete, rotina). Sem isso, usa send. */
+  sendProactive?(externalUserId: string, text: string, ctx: { lastInboundAt: Date | null }): Promise<void>;
+  /** Recebeu a mensagem: marca como lida e/ou mostra "digitando". */
+  ack?(msg: InboundMessage): Promise<void>;
   downloadAudio?(fileId: string): Promise<{ data: Buffer; mimeType: string }>;
 }
