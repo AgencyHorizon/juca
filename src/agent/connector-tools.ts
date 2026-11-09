@@ -19,6 +19,7 @@ import { encrypt } from "../lib/crypto.js";
 import { draftHash, mailClients } from "../integrations/mail/index.js";
 import { cryptoPrices, fxRates, stockQuotes } from "../integrations/market.js";
 import { flightsConfigured, searchFlights } from "../integrations/flights.js";
+import { APPS, appLink, geocode, holidays, lookupCep, lookupCnpj } from "../integrations/daily.js";
 import { createAuthLink, GOOGLE_CALENDAR_SCOPE, listConnections, NotConnectedError, providerConfigured, type Connection, type OAuthProvider } from "../integrations/oauth.js";
 
 type Tool = Anthropic.Beta.BetaTool;
@@ -217,6 +218,21 @@ export function connectorTools(st: ConnectorState): Tool[] {
     });
   tools.push(
     {
+      name: "open_app",
+      description: "Prepara um link que abre um app no ponto certo: corrida (uber, 99), rota (waze, google_maps), comida e mercado (ifood, rappi), compras (mercado_livre, amazon), hospedagem (booking) ou mensagem pronta (whatsapp). A pessoa confirma e paga no próprio app.",
+      input_schema: obj({
+        app: { type: "string", enum: [...APPS] },
+        destination: ns("endereço ou nome oficial do lugar, com a cidade (ex.: 'Aeroporto Internacional do Recife, Recife'); ou null"),
+        state_uf: ns("sigla do estado do destino (PE, SP...), obrigatória para uber e waze; ou null"),
+        query: ns("o que procurar ou pedir; ou null"),
+        phone: ns("telefone com DDD, só para whatsapp; ou null"),
+        message: ns("texto, só para whatsapp; ou null"),
+      }),
+    },
+    { name: "lookup_cep", description: "Endereço a partir de um CEP.", input_schema: obj({ cep: s("CEP") }) },
+    { name: "lookup_cnpj", description: "Dados públicos de uma empresa pelo CNPJ.", input_schema: obj({ cnpj: s("CNPJ") }) },
+    { name: "holidays", description: "Feriados nacionais de um ano.", input_schema: obj({ year: { type: "integer" } }) },
+    {
       name: "invite_friend",
       description: "Convida um amigo para o Juca. Só chame quando já tiver o contato: se a pessoa não informou telefone com DDD ou @usuário do Telegram, pergunte antes. O sistema responde direto à pessoa.",
       input_schema: obj({ friend_name: ns("nome do amigo, ou null"), contact: s("telefone com DDD ou @usuario do Telegram") }),
@@ -372,6 +388,30 @@ export async function executeConnectorTool(user: User, name: string, raw: any, c
         await audit(user.id, "agent", "calendar_event_updated");
         return json({ updated: true });
       }
+      case "open_app": {
+        const i = z.object({ app: z.enum(APPS), destination: z.string().max(200).nullish(), state_uf: z.string().length(2).nullish(), query: z.string().max(200).nullish(), phone: z.string().max(30).nullish(), message: z.string().max(1000).nullish() }).parse(raw);
+        if (i.app === "whatsapp" && !(i.phone && (i.phone.match(/\d/g)?.length ?? 0) >= 10)) throw new DomainError("missing_phone", "Falta o telefone com DDD.");
+        const needsPlace = i.app === "uber" || i.app === "waze";
+        if ((needsPlace || i.app === "google_maps") && !i.destination) throw new DomainError("missing_destination", "Falta o destino.");
+        const place = needsPlace && i.state_uf ? await geocode(i.destination!, i.state_uf).catch(() => null) : null;
+        const link = appLink(i.app, { ...i, place });
+        const where = place ? `Destino que entendi: ${place.name}\nConfira antes de confirmar.\n` : i.app === "uber" ? `Não localizei com segurança: ao abrir, digite ${i.destination}.\n` : "";
+        const manual = i.app === "99" ? `Esse app não aceita destino por link: ao abrir, digite ${i.destination ?? "o destino"}.\n` : i.app === "ifood" || i.app === "rappi" ? `Esse app não aceita busca por link: ao abrir, procure ${i.query ?? "o que quiser"}.\n` : "";
+        ctx.directReply = `${where}${manual}Toca aqui pra abrir:\n${link}\n\nA confirmação e o pagamento são no próprio app.`;
+        return json({ sent_to_user: true });
+      }
+      case "lookup_cep": {
+        const r = await lookupCep(z.object({ cep: z.string() }).parse(raw).cep);
+        if (!r) throw new DomainError("not_found", "CEP não encontrado.");
+        return json(r);
+      }
+      case "lookup_cnpj": {
+        const r = await lookupCnpj(z.object({ cnpj: z.string() }).parse(raw).cnpj);
+        if (!r) throw new DomainError("not_found", "CNPJ não encontrado.");
+        return json(r);
+      }
+      case "holidays":
+        return json({ holidays: await holidays(z.object({ year: z.number().int().min(2000).max(2100) }).parse(raw).year), note: "Só feriados nacionais." });
       case "invite_friend": {
         const i = z.object({ friend_name: z.string().max(60).nullish(), contact: z.string().min(3).max(60) }).parse(raw);
         const contact = parseContact(i.contact);
@@ -464,5 +504,6 @@ export async function executeConnectorTool(user: User, name: string, raw: any, c
 export const CONNECTOR_TOOL_NAMES = new Set([
   "account_connect", "account_disconnect", "email_search", "email_read", "email_draft", "email_send",
   "invite_friend", "save_skill", "list_skills", "delete_skill", "set_my_instructions",
+  "open_app", "lookup_cep", "lookup_cnpj", "holidays",
   "calendar_list", "calendar_create", "calendar_update", "calendar_delete", "bank_accounts", "bank_transactions", "market_quote", "flight_search", "create_routine",
 ]);

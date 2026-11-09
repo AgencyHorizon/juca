@@ -282,3 +282,27 @@ describe("passagens", async () => {
     globalThis.fetch = real;
   });
 });
+
+describe("links do dia a dia", async () => {
+  const { appLink, uberLink } = await import("../src/integrations/daily.js");
+  it("Uber leva o destino e as coordenadas", () => {
+    const u = new URL(uberLink("Aeroporto do Recife", { lat: "-8.1", lon: "-34.9", name: "x" }));
+    expect(u.searchParams.get("pickup")).toBe("my_location");
+    expect(u.searchParams.get("dropoff[latitude]")).toBe("-8.1");
+    expect(u.searchParams.get("dropoff[formatted_address]")).toBe("Aeroporto do Recife");
+  });
+  it("monta buscas e mensagem", () => {
+    expect(appLink("amazon", { query: "fone bluetooth" })).toBe("https://www.amazon.com.br/s?k=fone%20bluetooth");
+    expect(appLink("mercado_livre", { query: "fone bluetooth" })).toBe("https://lista.mercadolivre.com.br/fone-bluetooth");
+    expect(appLink("whatsapp", { phone: "(81) 99999-0000", message: "oi tudo" })).toBe("https://wa.me/81999990000?text=oi%20tudo");
+  });
+});
+
+describe("destino no estado certo", async () => {
+  const { pickInState } = await import("../src/integrations/daily.js");
+  const r = (uf: string, name: string) => ({ lat: "1", lon: "2", display_name: name, address: { "ISO3166-2-lvl4": `BR-${uf}` } });
+  it("recusa homônimo de outro estado", () => {
+    expect(pickInState([r("PR", "Recife, Paraná")], "PE")).toBeNull();
+    expect(pickInState([r("PR", "Recife, Paraná"), r("PE", "Recife")], "pe")!.display_name).toBe("Recife");
+  });
+});

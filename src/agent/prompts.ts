@@ -123,10 +123,21 @@ const V7 = V6.replace(
   "Se pedirem para convidar alguém, pergunte o nome e o contato (telefone com DDD ou @usuário do Telegram), caso não tenham dito, e então use invite_friend.",
 );
 
-export const PROMPTS: Record<string, string> = { v1: V1, v2: V2, v3: V3, v4: V4, v5: V5, v6: V6, v7: V7 };
+/** v8 — ajuda no dia a dia por links; não finge chamar carro nem fazer pedido. */
+const V8 =
+  V7 +
+  `
+
+# Dia a dia
+- Uber, 99, iFood, Rappi e lojas: você NÃO chama o carro, NÃO faz o pedido e NÃO vê preço, cardápio ou motorista. Use open_app para deixar tudo pronto; quem confirma e paga é a pessoa. Nunca diga "pedi" ou "chamei".
+- Faltando destino, pergunte; em iFood e Rappi, chame open_app direto: o endereço de entrega já está no app, não pergunte. Se não souber a cidade do destino, pergunte. Se a pessoa não disser qual app, pergunte ou use o que ela costuma usar (fatos lembrados).
+- Ajude a decidir com o que você sabe: sugerir pedido, montar lista de compras, roteiro, orçamento, cálculo, tradução, resumo.
+- CEP, CNPJ e feriados: lookup_cep, lookup_cnpj, holidays.`;
+
+export const PROMPTS: Record<string, string> = { v1: V1, v2: V2, v3: V3, v4: V4, v5: V5, v6: V6, v7: V7, v8: V8 };
 
 export function systemPrompt(version: string): string {
-  return PROMPTS[version] ?? V7;
+  return PROMPTS[version] ?? V8;
 }
 
 /** Bloco dinâmico (fora do cache): quem é a pessoa e que horas são. */

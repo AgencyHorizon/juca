@@ -15,7 +15,7 @@ const Env = z.object({
   NVIDIA_LLM_FALLBACK_MODEL: z.string().default("mistralai/mistral-large-4-1t-a52b"),
   JUCA_MODEL: z.string().default("claude-haiku-5-5"),
   JUCA_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),
-  PROMPT_VERSION: z.string().default("v7"),
+  PROMPT_VERSION: z.string().default("v8"),
 
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
