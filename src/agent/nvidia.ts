@@ -44,11 +44,11 @@ export function stripReasoning(text: string): string {
   return text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^[\s\S]*?<\/think>/i, "").trim();
 }
 
-async function complete(model: string, messages: ChatMessage[], tools: ReturnType<typeof toFunctionTools>, timeoutMs: number) {
+async function complete(model: string, messages: ChatMessage[], tools: ReturnType<typeof toFunctionTools>, timeoutMs: number, toolChoice: "auto" | "none" = "auto") {
   const res = await fetch(BASE, {
     method: "POST",
     headers: { authorization: `Bearer ${config.NVIDIA_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({ model, messages, tools, tool_choice: "auto", temperature: 0.3, max_tokens: 1500 }),
+    body: JSON.stringify({ model, messages, tools, tool_choice: toolChoice, temperature: 0.3, max_tokens: 1500 }),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`nvidia llm ${res.status}: ${(await res.text()).slice(0, 200)}`);
@@ -75,16 +75,19 @@ export async function runNvidiaAgent(p: {
   let pending: PendingAction | undefined;
   let model = config.NVIDIA_LLM_MODEL;
 
+  let forceText = false;
   for (let step = 0; step < MAX_STEPS; step++) {
+    // Na última volta (ou após resposta vazia) o modelo só pode escrever: assim ele sempre relata o que fez.
+    const choice = forceText || step === MAX_STEPS - 1 ? "none" : "auto";
     let data: Awaited<ReturnType<typeof complete>>;
     try {
-      data = await complete(model, messages, tools, 25_000);
+      data = await complete(model, messages, tools, 25_000, choice);
     } catch (e) {
       errors.inc({ where: `llm:${model}` });
       if (!config.NVIDIA_LLM_FALLBACK_MODEL || model === config.NVIDIA_LLM_FALLBACK_MODEL) throw e;
       logger.warn({ err: e, model }, "modelo principal falhou, usando o reserva");
       model = config.NVIDIA_LLM_FALLBACK_MODEL;
-      data = await complete(model, messages, tools, 60_000);
+      data = await complete(model, messages, tools, 60_000, choice);
     }
     usage.input += data.usage?.prompt_tokens ?? 0;
     usage.output += data.usage?.completion_tokens ?? 0;
@@ -96,6 +99,11 @@ export async function runNvidiaAgent(p: {
     const calls = msg.tool_calls ?? [];
     if (!calls.length) {
       const text = stripReasoning(msg.content ?? "");
+      if (!text && !pending && !forceText && step < MAX_STEPS - 1) {
+        logger.warn({ model, step, finish: data.choices[0]?.finish_reason }, "modelo devolveu resposta vazia");
+        forceText = true;
+        continue;
+      }
       return { text: pending ? pending.prompt : text || null, pending, usage, model };
     }
 
@@ -121,7 +129,11 @@ export async function runNvidiaAgent(p: {
       if (r.pending) pending = r.pending;
       messages.push({ role: "tool", tool_call_id: calls[i]!.id, content: r.content });
     });
+    // Aprovação pendente: a pergunta exata sai do sistema, não há por que voltar ao modelo.
+    const waiting = pending as PendingAction | undefined;
+    if (waiting) return { text: waiting.prompt, pending: waiting, usage, model };
   }
+  logger.warn({ model }, "agente terminou sem resposta");
   errors.inc({ where: "agent_max_steps" });
   return { text: pending ? pending.prompt : null, pending, usage, model };
 }

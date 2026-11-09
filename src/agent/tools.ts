@@ -35,7 +35,7 @@ export const CUSTOM_TOOLS: Tool[] = [
       recurrence: nullableStr("null para único; ou FREQ=DAILY | FREQ=WEEKDAYS | FREQ=WEEKLY;BYDAY=MO,WE | FREQ=MONTHLY"),
     }),
   },
-  { name: "list_reminders", description: "Lista os lembretes ativos da pessoa, com ids.", input_schema: obj({}) },
+  { name: "list_reminders", description: "Lista os lembretes e as rotinas ativos da pessoa, com ids (campo kind). Use também para 'quais minhas rotinas'. Para cancelar qualquer um, use cancel_reminder.", input_schema: obj({}) },
   {
     name: "update_reminder",
     description: "Altera um lembrete existente (use list_reminders antes para achar o id). Campos null não mudam.",
