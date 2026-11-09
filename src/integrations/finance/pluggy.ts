@@ -13,6 +13,7 @@ export const pluggyConfigured = () => !!(config.PLUGGY_CLIENT_ID && config.PLUGG
 let cached: { key: string; expires: number } | null = null;
 
 async function apiKey(): Promise<string> {
+  if (process.env.PLUGGY_TEMP_API_KEY) return process.env.PLUGGY_TEMP_API_KEY; // só para testes curtos: expira em 2h
   if (cached && cached.expires > Date.now()) return cached.key;
   const res = await fetch(`${API}/auth`, {
     method: "POST",
