@@ -36,7 +36,10 @@ Vault: o modelo usa logins e cartões sem ver os segredos
 | Leitura financeira via agregador | Pluggy (Open Finance do Brasil, equivalente ao Plaid) | Pronto |
 | Memória persistente | `memories` + histórico da sessão | Já existia |
 | Rotinas por evento (e-mail novo etc.) | Falta webhook de cada provedor | Próximo passo |
-| Skills reutilizáveis | Falta | Próximo passo |
+| Skills reutilizáveis | `save_skill`, chamadas com `/nome` | Pronto |
+| Papel e preferências do Bot | `set_my_instructions`, injetadas em todo turno | Pronto |
+| Rotinas condicionais | Só enviam se a condição acontecer (`SEM_NOVIDADES`) | Pronto |
+| Acesso por convite (Instinct) | Código de uso único, link do Telegram, lista de espera, 3 convites por pessoa | Pronto |
 | Pesquisa web geral | Pronta, depende de `BRAVE_SEARCH_API_KEY` | Falta a chave |
 | Navegador e computador na nuvem | Falta. Pede sandbox isolado e infraestrutura própria | Fase futura |
 | Ligações telefônicas | Falta | Fase futura |
@@ -78,6 +81,15 @@ O risco central é um agente que lê conteúdo de terceiros, acessa dados privad
 3. `web_fetch` só abre URLs escritas pela própria pessoa ou achadas na busca, para uma ordem escondida não vazar dados numa URL.
 4. Rotinas não executam ações consequentes.
 5. Respostas com dados bancários não vão para o histórico.
+6. Rotina, skill, preferência e convite não podem ser criados na mesma mensagem que leu conteúdo externo: uma ordem escondida não vira comportamento permanente.
+
+## Convites
+
+- Sem código válido, a pessoa fica na lista de espera e não chega ao cadastro.
+- Códigos de administrador: `npm run invite -- 5` ou `POST /admin/invites {"count":5}`.
+- Cada usuário tem 3 convites; pede no chat ("me dá um convite").
+- Lista de espera: `GET /admin/waitlist` e `POST /admin/users/:id/approve`.
+- `INVITE_ONLY=false` abre o cadastro.
 
 ## 6. Mudanças nos requisitos do MVP
 

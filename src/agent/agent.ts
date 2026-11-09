@@ -10,6 +10,7 @@ import { errors, llmTokens } from "../lib/metrics.js";
 import { systemPrompt, userContext } from "./prompts.js";
 import { runNvidiaAgent } from "./nvidia.js";
 import { connectorState, connectorStatus, connectorTools, newToolContext } from "./connector-tools.js";
+import { decrypt } from "../lib/crypto.js";
 import { CUSTOM_TOOLS, executeTool, localWebTools, serverTools } from "./tools.js";
 
 let anthropic: Anthropic | null = null; // criado sob demanda: só existe com LLM_PROVIDER=anthropic
@@ -67,6 +68,7 @@ export async function runAgent(user: User, history: StoredMessage[], userText: s
     nowLocal: nowLocalDescription(user.timezone),
     upcomingDays: upcomingDays(user.timezone),
     connectors: connectorStatus(state),
+    customInstructions: user.custom_instructions_enc ? decrypt(user.custom_instructions_enc) : null,
     facts: memoryOn ? facts : [],
     newSession: opts.newSession,
   });

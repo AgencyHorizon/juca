@@ -15,7 +15,8 @@ import { checkRateLimit } from "./ratelimit.js";
 import { findOrCreateByChannel, touchChannel, updateUser, type User } from "./users.js";
 import { transcriberFromEnv, type Transcriber } from "../speech/index.js";
 import { disconnectBanks } from "../integrations/finance/pluggy.js";
-import { createEvent, deleteEvent, type EventInput } from "../integrations/google/calendar.js";
+import { createEvent, deleteEvent, updateEvent, type EventInput, type EventPatch } from "../integrations/google/calendar.js";
+import { expandSkill } from "./skills.js";
 import { draftHash, mailClients } from "../integrations/mail/index.js";
 import { disconnect as disconnectAccount, type OAuthProvider } from "../integrations/oauth.js";
 
@@ -183,7 +184,14 @@ async function handleActive(user: User, msg: InboundMessage, started: number) {
   const history = await recentHistory(session.id);
   await saveMessage({ userId: user.id, sessionId: session.id, role: "user", channel: msg.channel, text });
 
-  const result = await runAgent(user, history, text, { newSession: session.isNew });
+  // No Telegram o "digitando…" some em 5s; o agente pode levar bem mais.
+  const typing = msg.channel === "telegram" ? setInterval(() => void channels[msg.channel].ack?.(msg).catch(() => {}), 4500) : null;
+  let result;
+  try {
+    result = await runAgent(user, history, (await expandSkill(user.id, text)) ?? text, { newSession: session.isNew });
+  } finally {
+    if (typing) clearInterval(typing);
+  }
   if (result.pending) await updateUser(user.id, { pending_action: result.pending });
 
   await send(msg, { text: result.text, opts: result.pending ? { quickReplies: ["Sim", "Não"] } : undefined });
@@ -246,6 +254,12 @@ async function executeConfirmed(user: User, msg: InboundMessage, pending: NonNul
       await audit(user.id, "user", "calendar_event_created", { with_invites: true });
       await send(msg, { text: "Evento criado e convites enviados ✅" });
       return;
+    case "calendar_update": {
+      await updateEvent(user.id, String(pending.args.event_id), pending.args.patch as EventPatch, true);
+      await audit(user.id, "user", "calendar_event_updated", { with_invites: true });
+      await send(msg, { text: "Evento alterado e convidados avisados ✅" });
+      return;
+    }
     case "calendar_delete":
       await deleteEvent(user.id, String(pending.args.event_id), !!pending.args.notify);
       await audit(user.id, "user", "calendar_event_deleted");

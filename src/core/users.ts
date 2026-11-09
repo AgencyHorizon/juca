@@ -19,13 +19,16 @@ export interface User {
   cohort: string;
   abuse_strikes: number;
   pending_action: PendingAction | null;
+  invite_accepted: boolean;
+  invites_left: number;
+  custom_instructions_enc: string | null;
   created_at: Date;
   last_seen_at: Date;
 }
 
 /** RF-18: ação irreversível aguardando "sim". Ligada ao texto exato que foi mostrado ao usuário. */
 export interface PendingAction {
-  kind: "delete_all_data" | "cancel_reminder" | "clear_list" | "forget_fact" | "send_email" | "disconnect_account" | "calendar_create" | "calendar_delete";
+  kind: "delete_all_data" | "cancel_reminder" | "clear_list" | "forget_fact" | "send_email" | "disconnect_account" | "calendar_create" | "calendar_update" | "calendar_delete";
   args: Record<string, unknown>;
   prompt: string;
   expiresAt: string;
@@ -62,7 +65,7 @@ export async function getUser(id: number): Promise<User | null> {
 const UPDATABLE = new Set([
   "phone", "name", "timezone", "language", "status", "onboarding_step", "otp_hash", "otp_expires_at",
   "otp_attempts", "phone_verified", "terms_version", "terms_accepted_at", "training_consent", "is_adult",
-  "cohort", "abuse_strikes", "pending_action", "last_seen_at",
+  "cohort", "abuse_strikes", "pending_action", "last_seen_at", "invite_accepted", "invites_left", "custom_instructions_enc",
 ]);
 
 export async function updateUser(id: number, patch: Record<string, unknown>): Promise<User> {

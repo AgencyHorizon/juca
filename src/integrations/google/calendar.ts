@@ -62,5 +62,23 @@ export function createEvent(userId: number, e: EventInput) {
   return cal<GEvent>(userId, `?sendUpdates=${e.attendees?.length ? "all" : "none"}`, { method: "POST", body: JSON.stringify(eventBody(e)) });
 }
 
-export const deleteEvent = (userId: number, id: string, notify: boolean) =>
+export interface EventPatch {
+  title?: string | null;
+  startLocal?: string | null;
+  endLocal?: string | null;
+  timezone: string;
+}
+
+export function patchBody(p: EventPatch) {
+  return {
+    ...(p.title ? { summary: p.title } : {}),
+    ...(p.startLocal ? { start: { dateTime: withSeconds(p.startLocal), timeZone: p.timezone } } : {}),
+    ...(p.endLocal ? { end: { dateTime: withSeconds(p.endLocal), timeZone: p.timezone } } : {}),
+  };
+}
+
+export const updateEvent = (userId: number, id: string, p: EventPatch, notify: boolean) =>
+  cal<GEvent>(userId, `/${encodeURIComponent(id)}?sendUpdates=${notify ? "all" : "none"}`, { method: "PATCH", body: JSON.stringify(patchBody(p)) });
+
+export const deleteEvent =(userId: number, id: string, notify: boolean) =>
   cal<void>(userId, `/${encodeURIComponent(id)}?sendUpdates=${notify ? "all" : "none"}`, { method: "DELETE" });

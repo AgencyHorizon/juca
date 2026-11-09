@@ -4,6 +4,7 @@ import { sha256 } from "../lib/crypto.js";
 import { logger } from "../lib/logger.js";
 import type { InboundMessage, OutboundOptions } from "../channels/types.js";
 import { audit } from "./audit.js";
+import { claimInvite, parseInviteCode, phoneHasAccount } from "./invites.js";
 import { isValidTimezone } from "./time.js";
 import { countActiveUsers, mergeIntoExistingByPhone, updateUser, type User } from "./users.js";
 
@@ -92,6 +93,26 @@ export async function handleOnboarding(user: User, msg: InboundMessage, otp: Otp
 
   switch (u.onboarding_step) {
     case "start": {
+      // Acesso por convite: sem código válido, vai para a lista de espera
+      if (config.INVITE_ONLY && !u.invite_accepted) {
+        const code = parseInviteCode(text);
+        const allowed = (code && (await claimInvite(code, u.id))) || (msg.phone && (await phoneHasAccount(msg.phone, u.id)));
+        if (!allowed) {
+          await updateUser(u.id, { onboarding_step: "waitlist" });
+          await audit(u.id, "system", "waitlist_joined");
+          return {
+            user: u,
+            replies: [
+              {
+                text: code
+                  ? "Oi! Eu sou o Juca 👋 uma IA que vive no seu chat. Esse convite não é válido ou já foi usado. Coloquei você na lista de espera; se conseguir outro código, é só mandar aqui."
+                  : "Oi! Eu sou o Juca 👋 uma IA que vive no seu chat e resolve suas coisas. Por enquanto só entro por convite. Se você tem um código (JUCA-XXXXXX), manda aqui. Se não, já te coloquei na lista de espera e aviso quando abrir sua vaga!",
+              },
+            ],
+          };
+        }
+        u = { ...u, invite_accepted: true };
+      }
       // RN-25: beta fechado limitado
       if ((await countActiveUsers()) > config.BETA_USER_CAP) {
         await updateUser(u.id, { onboarding_step: "waitlist" });
@@ -213,9 +234,15 @@ export async function handleOnboarding(user: User, msg: InboundMessage, otp: Otp
       });
       break;
     }
-    case "waitlist":
-      replies.push({ text: "Você está na lista de espera do beta. Te aviso aqui assim que abrir uma vaga 🙏" });
+    case "waitlist": {
+      const code = parseInviteCode(text);
+      if (code && (await claimInvite(code, u.id))) {
+        const started = await updateUser(u.id, { onboarding_step: "start" });
+        return handleOnboarding(started, msg, otp);
+      }
+      replies.push({ text: code ? "Esse convite não é válido ou já foi usado 😕 Se tiver outro, manda aqui." : "Você está na lista de espera. Te aviso aqui assim que abrir sua vaga 🙏 Se conseguir um código de convite, é só mandar." });
       break;
+    }
     default:
       logger.warn({ step: u.onboarding_step }, "passo de onboarding desconhecido");
       await updateUser(u.id, { onboarding_step: "start" });

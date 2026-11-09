@@ -11,7 +11,7 @@ import { updateUser, type PendingAction, type User } from "../core/users.js";
 import { toolCalls } from "../lib/metrics.js";
 import { config } from "../config.js";
 import { weatherForecast, webFetch, webSearch } from "./web.js";
-import { CONNECTOR_TOOL_NAMES, executeConnectorTool, newToolContext, ROUTINE_BLOCKED, type ToolContext } from "./connector-tools.js";
+import { BLOCKED_AFTER_EXTERNAL, CONNECTOR_TOOL_NAMES, executeConnectorTool, EXTERNAL_CONTENT_TOOLS, newToolContext, ROUTINE_BLOCKED, type ToolContext } from "./connector-tools.js";
 
 type Tool = Anthropic.Beta.BetaTool;
 
@@ -195,6 +195,9 @@ export async function executeTool(user: User, name: string, input: unknown, ctx:
   const rawInput = normalizeArgs(input);
   if (ctx.isRoutine && ROUTINE_BLOCKED.has(name))
     return { content: JSON.stringify({ error: "needs_approval", message: "Rotinas não executam isso sozinhas: avise a pessoa no resultado." }), isError: true };
+  if (ctx.tainted && BLOCKED_AFTER_EXTERNAL.has(name))
+    return { content: JSON.stringify({ error: "needs_new_message", message: "Isso não pode ser feito na mesma mensagem que leu conteúdo externo: peça para a pessoa pedir de novo em outra mensagem." }), isError: true };
+  if (EXTERNAL_CONTENT_TOOLS.has(name)) ctx.tainted = true;
   try {
     const out = await run();
     toolCalls.inc({ tool: name, outcome: out.isError ? "error" : out.pending ? "pending" : "ok" });
@@ -221,7 +224,7 @@ export async function executeTool(user: User, name: string, input: unknown, ctx:
       }
       case "list_reminders": {
         const rs = await listReminders(user.id);
-        return ok(rs.map((r) => ({ id: r.id, text: r.text, when: formatLocal(r.dueAt, tz), recurrence: r.rrule })));
+        return ok(rs.map((r) => ({ id: r.id, kind: r.isRoutine ? "rotina" : "lembrete", text: r.text, when: formatLocal(r.dueAt, tz), recurrence: r.rrule })));
       }
       case "update_reminder": {
         const i = UpdateReminderIn.parse(rawInput);

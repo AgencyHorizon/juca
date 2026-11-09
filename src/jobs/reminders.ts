@@ -19,11 +19,19 @@ const BATCH = 100;
 const MAX_ATTEMPTS = 8;
 
 /** Rotina: o agente executa a instrução sem histórico. Ações consequentes ficam bloqueadas (ver ROUTINE_BLOCKED). */
-async function runRoutine(userId: number, instruction: string): Promise<string> {
+export const NOTHING_TO_REPORT = "SEM_NOVIDADES";
+
+/** Devolve null quando a rotina é condicional e a condição não aconteceu: nesse caso nada é enviado. */
+async function runRoutine(userId: number, instruction: string): Promise<string | null> {
   const user = await getUser(userId);
   if (!user) throw new Error("usuário não encontrado");
-  const r = await runAgent(user, [], `[Rotina agendada pela própria pessoa] ${instruction}`, { newSession: true, isRoutine: true });
-  return `🔁 ${r.text}`;
+  const r = await runAgent(
+    user,
+    [],
+    `[Rotina agendada pela própria pessoa] ${instruction}\n\nSe a instrução pedir para avisar só em certa condição e ela não tiver acontecido, responda exatamente ${NOTHING_TO_REPORT} e mais nada.`,
+    { newSession: true, isRoutine: true },
+  );
+  return r.text.includes(NOTHING_TO_REPORT) ? null : `🔁 ${r.text}`;
 }
 
 /** Tenta o canal usado mais recentemente; se ele não puder iniciar conversa, tenta o próximo. */
@@ -72,7 +80,7 @@ export async function dispatchDueReminders(): Promise<number> {
         const lateMin = Math.round((Date.now() - new Date(r.due_at).getTime()) / 60_000);
         const late = lateMin > 15 ? `\n(desculpa o atraso de ${lateMin} min!)` : "";
         const text = r.is_routine ? await runRoutine(r.user_id, decrypt(r.text_enc)) : `⏰ Lembrete: ${decrypt(r.text_enc)}${late}`;
-        await deliver(chan.rows, text);
+        if (text) await deliver(chan.rows, text);
 
         const next = r.rrule ? nextOccurrence(r.rrule, new Date(r.due_at), r.timezone) : null;
         if (next) {

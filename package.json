@@ -12,7 +12,9 @@
     "test": "vitest run",
     "dev:telegram": "tsx --env-file=.env scripts/telegram-polling.ts",
     "stt:smoke": "tsx --env-file=.env scripts/stt-smoke.ts",
-    "whatsapp:check": "tsx --env-file=.env scripts/whatsapp-check.ts"
+    "whatsapp:check": "tsx --env-file=.env scripts/whatsapp-check.ts",
+    "invite": "tsx --env-file=.env scripts/invite.ts",
+    "test:setup": "tsx scripts/setup-test-db.ts"
   },
   "author": "",
   "license": "ISC",

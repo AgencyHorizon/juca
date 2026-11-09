@@ -10,7 +10,11 @@ import { formatLocal } from "../core/time.js";
 import type { PendingAction, User } from "../core/users.js";
 import { query } from "../db/pool.js";
 import { accounts, listItems, ownsAccount, pluggyConfigured, transactions } from "../integrations/finance/pluggy.js";
-import { createEvent, getEvent, listEvents, type GEvent } from "../integrations/google/calendar.js";
+import { createEvent, getEvent, listEvents, updateEvent, type GEvent } from "../integrations/google/calendar.js";
+import { issueInvite } from "../core/invites.js";
+import { deleteSkill, listSkills, saveSkill } from "../core/skills.js";
+import { updateUser } from "../core/users.js";
+import { encrypt } from "../lib/crypto.js";
 import { draftHash, mailClients } from "../integrations/mail/index.js";
 import { cryptoPrices, fxRates, stockQuotes } from "../integrations/market.js";
 import { flightsConfigured, searchFlights } from "../integrations/flights.js";
@@ -31,11 +35,25 @@ export interface ToolContext {
   sensitive: boolean;
   /** Execução automática de rotina: sem ninguém para aprovar, ações consequentes ficam bloqueadas. */
   isRoutine: boolean;
+  /** Este turno já leu conteúdo de terceiros. */
+  tainted: boolean;
 }
 
-export const newToolContext = (trustedText = "", isRoutine = false): ToolContext => ({ trustedText, allowedUrls: new Set(), sensitive: false, isRoutine });
+export const newToolContext = (trustedText = "", isRoutine = false): ToolContext => ({ trustedText, allowedUrls: new Set(), sensitive: false, isRoutine, tainted: false });
 
-export const ROUTINE_BLOCKED = new Set(["email_send", "calendar_delete", "account_disconnect", "delete_all_my_data", "clear_list", "create_routine"]);
+export const ROUTINE_BLOCKED = new Set([
+  "email_send", "calendar_delete", "account_disconnect", "delete_all_my_data", "clear_list", "create_routine",
+  "invite_friend", "save_skill", "delete_skill", "set_my_instructions",
+]);
+
+/** Ferramentas que trazem texto de terceiros para o turno. */
+export const EXTERNAL_CONTENT_TOOLS = new Set(["email_search", "email_read", "calendar_list", "bank_transactions", "web_fetch", "web_search"]);
+
+/**
+ * O que sobrevive ao turno não pode nascer de um turno que leu conteúdo de terceiros: senão uma ordem
+ * escondida num e-mail viraria rotina ou preferência permanente.
+ */
+export const BLOCKED_AFTER_EXTERNAL = new Set(["create_routine", "save_skill", "set_my_instructions", "invite_friend"]);
 
 export interface ConnectorState {
   connections: Connection[];
@@ -158,6 +176,11 @@ export function connectorTools(st: ConnectorState): Tool[] {
           attendees: { type: "array", items: { type: "string" }, description: "e-mails dos convidados; vazio se não houver" },
         }),
       },
+      {
+        name: "calendar_update",
+        description: "Altera título ou horário de um evento (id de calendar_list). Campos null não mudam. Se o evento tiver convidados, o sistema pede confirmação.",
+        input_schema: obj({ event_id: s("id do evento"), title: ns("novo título ou null"), start_local: ns("YYYY-MM-DDTHH:mm ou null"), end_local: ns("YYYY-MM-DDTHH:mm ou null") }),
+      },
       { name: "calendar_delete", description: "Apaga um evento pelo id de calendar_list. O sistema pede confirmação.", input_schema: obj({ event_id: s("id do evento") }) },
     );
   if (st.bankEnabled && st.banks.length)
@@ -189,6 +212,21 @@ export function connectorTools(st: ConnectorState): Tool[] {
         nonstop_only: { type: "boolean" },
       }),
     });
+  tools.push(
+    { name: "invite_friend", description: "Gera um convite de uso único para a pessoa chamar um amigo para o Juca. Cada pessoa tem um número limitado.", input_schema: obj({}) },
+    {
+      name: "save_skill",
+      description: "Salva um procedimento reutilizável que a pessoa chama com /nome. Ex.: nome 'bomdia', instruções 'resuma e-mails não lidos, agenda de hoje e cotação do dólar'.",
+      input_schema: obj({ name: s("nome curto, sem espaços"), instructions: s("o que fazer, passo a passo") }),
+    },
+    { name: "list_skills", description: "Lista as skills salvas.", input_schema: obj({}) },
+    { name: "delete_skill", description: "Apaga uma skill.", input_schema: obj({ name: s("nome da skill") }) },
+    {
+      name: "set_my_instructions",
+      description: "Grava como a pessoa quer que o Juca se comporte sempre (ex.: 'respostas bem curtas', 'me chame de chefe'). Substitui as anteriores; null apaga.",
+      input_schema: obj({ instructions: ns("preferências, ou null para apagar") }),
+    },
+  );
   tools.push({
     name: "create_routine",
     description: "Agenda uma tarefa que o Juca executa sozinho e manda o resultado. Ex.: 'todo dia às 8h resuma meus e-mails não lidos', 'toda sexta às 18h me diga como fechou PETR4'.",
@@ -310,6 +348,46 @@ export async function executeConnectorTool(user: User, name: string, raw: any, c
         await audit(user.id, "agent", "calendar_event_created");
         return json({ created: true, id: e.id, title: e.summary, when: formatLocal(start.toJSDate(), tz) });
       }
+      case "calendar_update": {
+        const i = z.object({ event_id: z.string().min(1), title: z.string().max(300).nullish(), start_local: z.string().nullish(), end_local: z.string().nullish() }).parse(raw);
+        if (i.start_local) toIso(i.start_local, tz, "Início");
+        if (i.end_local) toIso(i.end_local, tz, "Fim");
+        if (!i.title && !i.start_local && !i.end_local) throw new DomainError("nothing_to_update", "Nada para alterar.");
+        const e = await getEvent(user.id, i.event_id);
+        const notify = (e.attendees?.length ?? 0) > 0;
+        const patch = { title: i.title, startLocal: i.start_local, endLocal: i.end_local, timezone: tz };
+        if (notify) {
+          if (ctx.isRoutine) throw new DomainError("needs_approval", "Alterar evento com convidados precisa da aprovação da pessoa.");
+          const prompt = `Vou alterar "${e.summary ?? "(sem título)"}"${i.title ? ` para o título "${i.title}"` : ""}${i.start_local ? ` para ${formatLocal(toIso(i.start_local, tz, "Início").toJSDate(), tz)}` : ""} e avisar ${e.attendees!.length} convidado(s). Confirma? Responda SIM.`;
+          return { content: JSON.stringify({ status: "awaiting_user_confirmation" }), pending: { kind: "calendar_update", args: { event_id: i.event_id, patch }, prompt, expiresAt: expires() } };
+        }
+        await updateEvent(user.id, i.event_id, patch, false);
+        await audit(user.id, "agent", "calendar_event_updated");
+        return json({ updated: true });
+      }
+      case "invite_friend": {
+        const r = await issueInvite(user);
+        return json({ ...r, note: "Mande o link (ou o código) e diga quantos convites restam." });
+      }
+      case "save_skill": {
+        const i = z.object({ name: z.string().min(2), instructions: z.string().min(3).max(2000) }).parse(raw);
+        const name = await saveSkill(user.id, i.name, i.instructions);
+        await audit(user.id, "agent", "skill_saved");
+        return json({ saved: true, command: `/${name}` });
+      }
+      case "list_skills":
+        return json({ skills: (await listSkills(user.id)).map((k) => ({ command: `/${k.name}`, instructions: k.instructions })) });
+      case "delete_skill": {
+        const i = z.object({ name: z.string().min(1) }).parse(raw);
+        await deleteSkill(user.id, i.name);
+        return json({ deleted: true });
+      }
+      case "set_my_instructions": {
+        const i = z.object({ instructions: z.string().max(1000).nullish() }).parse(raw);
+        await updateUser(user.id, { custom_instructions_enc: i.instructions ? encrypt(i.instructions) : null });
+        await audit(user.id, "user", "instructions_changed");
+        return json({ saved: true });
+      }
       case "calendar_delete": {
         const i = z.object({ event_id: z.string().min(1) }).parse(raw);
         const e = await getEvent(user.id, i.event_id);
@@ -363,5 +441,6 @@ export async function executeConnectorTool(user: User, name: string, raw: any, c
 
 export const CONNECTOR_TOOL_NAMES = new Set([
   "account_connect", "account_disconnect", "email_search", "email_read", "email_draft", "email_send",
-  "calendar_list", "calendar_create", "calendar_delete", "bank_accounts", "bank_transactions", "market_quote", "flight_search", "create_routine",
+  "invite_friend", "save_skill", "list_skills", "delete_skill", "set_my_instructions",
+  "calendar_list", "calendar_create", "calendar_update", "calendar_delete", "bank_accounts", "bank_transactions", "market_quote", "flight_search", "create_routine",
 ]);

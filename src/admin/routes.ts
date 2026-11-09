@@ -1,6 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { config } from "../config.js";
 import { audit } from "../core/audit.js";
+import { channels } from "../channels/index.js";
+import { createInvite, inviteLink } from "../core/invites.js";
+import { channelsOf } from "../core/users.js";
 import { FLAG_DEFAULTS, setFlag } from "../core/flags.js";
 import { query } from "../db/pool.js";
 import { safeEqual } from "../lib/crypto.js";
@@ -68,6 +71,29 @@ export async function adminRoutes(app: FastifyInstance) {
     const { reason } = (req.body ?? {}) as { reason?: string };
     await query("UPDATE users SET status='blocked' WHERE id=$1", [id]);
     await audit(id, "admin", "user_blocked", { reason: reason ?? null });
+    return { ok: true };
+  });
+
+  // Convites e lista de espera
+  app.post("/invites", async (req) => {
+    const count = Math.min(Number((req.body as any)?.json?.count ?? 1), 100);
+    const codes: string[] = [];
+    for (let i = 0; i < count; i++) codes.push(await createInvite(null));
+    await audit(null, "admin", "invites_created", { count });
+    return codes.map((code) => ({ code, link: inviteLink(code) }));
+  });
+
+  app.get("/invites", async () => (await query("SELECT code, created_by, used_by, created_at, used_at FROM invites ORDER BY created_at DESC LIMIT 200")).rows);
+
+  app.get("/waitlist", async () => (await query("SELECT id, name, created_at FROM users WHERE status='onboarding' AND onboarding_step='waitlist' ORDER BY id")).rows);
+
+  app.post("/users/:id/approve", async (req, reply) => {
+    const id = Number((req.params as any).id);
+    const r = await query("UPDATE users SET invite_accepted = TRUE, onboarding_step = 'start' WHERE id=$1 AND onboarding_step='waitlist' RETURNING id", [id]);
+    if (!r.rowCount) return reply.code(404).send({ error: "not_on_waitlist" });
+    await audit(id, "admin", "waitlist_approved");
+    const chan = (await channelsOf(id))[0];
+    if (chan) await channels[chan.channel].send(chan.external_id, "Sua vaga no Juca abriu! 🎉 Manda um oi pra gente começar.").catch(() => {});
     return { ok: true };
   });
 

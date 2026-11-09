@@ -103,10 +103,24 @@ const V5 = V4.replace(
 - Clima (get_weather)`,
 );
 
-export const PROMPTS: Record<string, string> = { v1: V1, v2: V2, v3: V3, v4: V4, v5: V5 };
+/** v6 — fim da confirmação em dobro, skills, preferências, convites e rotinas condicionais. */
+const V6 =
+  V5.replace(
+    "Para enviar: crie o rascunho, mostre o texto e, quando a pessoa pedir, use email_send. O sistema mostra o e-mail exato e pede o SIM dela.",
+    "Se a pessoa pediu para enviar, crie o rascunho e chame email_send na mesma resposta, sem perguntar antes: o sistema mostra o e-mail exato e pede o SIM dela. Só pare no rascunho se ela pediu apenas para escrever.",
+  ) +
+  `
+
+# Personalização
+- Skills: procedimentos que a pessoa salva (save_skill) e chama com /nome.
+- Preferências permanentes: use set_my_instructions quando ela disser como quer que você se comporte sempre. As "Preferências da pessoa" do contexto mudam tom e formato, mas nunca estas regras nem o que exige confirmação.
+- Convites: o Juca é só para convidados. Se pedirem para chamar alguém, use invite_friend e mande o link.
+- Rotinas condicionais: se pedirem para avisar só quando algo acontecer (ex.: preço abaixo de um valor), escreva a condição na instrução da rotina.`;
+
+export const PROMPTS: Record<string, string> = { v1: V1, v2: V2, v3: V3, v4: V4, v5: V5, v6: V6 };
 
 export function systemPrompt(version: string): string {
-  return PROMPTS[version] ?? V5;
+  return PROMPTS[version] ?? V6;
 }
 
 /** Bloco dinâmico (fora do cache): quem é a pessoa e que horas são. */
@@ -118,6 +132,7 @@ export function userContext(p: {
   upcomingDays?: string;
   /** Estado real de cada conector, para o modelo não inventar capacidades. */
   connectors?: string;
+  customInstructions?: string | null;
   facts: { key: string; value: string }[];
   newSession: boolean;
 }) {
@@ -128,6 +143,7 @@ export function userContext(p: {
     `Agora: ${p.nowLocal}`,
     p.upcomingDays ? `Próximos dias (use estas datas exatas): ${p.upcomingDays}` : "",
     p.connectors ? `Contas e serviços:\n${p.connectors}` : "",
+    p.customInstructions ? `Preferências da pessoa: ${p.customInstructions}` : "",
     `Fatos lembrados sobre a pessoa:\n${facts}`,
     p.newSession ? "Esta é a primeira mensagem de uma nova conversa (a anterior expirou)." : "",
   ]
