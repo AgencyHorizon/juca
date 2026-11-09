@@ -11,7 +11,8 @@ import type { PendingAction, User } from "../core/users.js";
 import { query } from "../db/pool.js";
 import { accounts, listItems, ownsAccount, pluggyConfigured, transactions } from "../integrations/finance/pluggy.js";
 import { createEvent, getEvent, listEvents, updateEvent, type GEvent } from "../integrations/google/calendar.js";
-import { issueInvite } from "../core/invites.js";
+import { inviteMessage, issueInvite, parseContact, telegramShareLink, whatsappChatLink } from "../core/invites.js";
+import { whatsappInviteReady } from "../channels/whatsapp.js";
 import { deleteSkill, listSkills, saveSkill } from "../core/skills.js";
 import { updateUser } from "../core/users.js";
 import { encrypt } from "../lib/crypto.js";
@@ -37,6 +38,8 @@ export interface ToolContext {
   isRoutine: boolean;
   /** Este turno já leu conteúdo de terceiros. */
   tainted: boolean;
+  /** Resposta montada pelo código (links longos): o modelo não reescreve. */
+  directReply?: string;
 }
 
 export const newToolContext = (trustedText = "", isRoutine = false): ToolContext => ({ trustedText, allowedUrls: new Set(), sensitive: false, isRoutine, tainted: false });
@@ -213,7 +216,11 @@ export function connectorTools(st: ConnectorState): Tool[] {
       }),
     });
   tools.push(
-    { name: "invite_friend", description: "Gera um convite de uso único para a pessoa chamar um amigo para o Juca. Cada pessoa tem um número limitado.", input_schema: obj({}) },
+    {
+      name: "invite_friend",
+      description: "Convida um amigo para o Juca. Só chame quando já tiver o contato: se a pessoa não informou telefone com DDD ou @usuário do Telegram, pergunte antes. O sistema responde direto à pessoa.",
+      input_schema: obj({ friend_name: ns("nome do amigo, ou null"), contact: s("telefone com DDD ou @usuario do Telegram") }),
+    },
     {
       name: "save_skill",
       description: "Salva um procedimento reutilizável que a pessoa chama com /nome. Ex.: nome 'bomdia', instruções 'resuma e-mails não lidos, agenda de hoje e cotação do dólar'.",
@@ -366,8 +373,23 @@ export async function executeConnectorTool(user: User, name: string, raw: any, c
         return json({ updated: true });
       }
       case "invite_friend": {
-        const r = await issueInvite(user);
-        return json({ ...r, note: "Mande o link (ou o código) e diga quantos convites restam." });
+        const i = z.object({ friend_name: z.string().max(60).nullish(), contact: z.string().min(3).max(60) }).parse(raw);
+        const contact = parseContact(i.contact);
+        if (user.invites_left <= 0) throw new DomainError("no_invites", "Você não tem mais convites disponíveis.");
+        const friend = i.friend_name ?? "seu amigo";
+        // WhatsApp configurado: o Juca chama o amigo por template, depois do SIM. O convite só é gasto ao confirmar.
+        if (contact.kind === "phone" && whatsappInviteReady()) {
+          const prompt = `Vou chamar ${friend} no WhatsApp (+${contact.value}) dizendo que ${user.name ?? "você"} convidou pro Juca. Confirma? Responda SIM.`;
+          return { content: JSON.stringify({ status: "awaiting_user_confirmation" }), pending: { kind: "send_invite", args: { to: contact.value }, prompt, expiresAt: expires() } };
+        }
+        const { code, left } = await issueInvite(user);
+        const message = inviteMessage(user.name, i.friend_name ?? null, code);
+        const rest = `Você ainda tem ${left} convite${left === 1 ? "" : "s"}.`;
+        ctx.directReply =
+          contact.kind === "phone"
+            ? `Preparei o convite de ${friend} 🎟️ Toca aqui que abre a conversa com a mensagem pronta, é só enviar:\n${whatsappChatLink(contact.value, message)}\n\n${rest}`
+            : `O Telegram não deixa eu chamar quem nunca falou comigo, então precisa sair de você 🎟️ Toca aqui e escolhe ${contact.kind === "telegram" ? `@${contact.value}` : friend}:\n${telegramShareLink(code, message)}\n\n${rest}`;
+        return json({ sent_to_user: true });
       }
       case "save_skill": {
         const i = z.object({ name: z.string().min(2), instructions: z.string().min(3).max(2000) }).parse(raw);

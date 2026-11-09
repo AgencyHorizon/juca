@@ -117,10 +117,16 @@ const V6 =
 - Convites: o Juca é só para convidados. Se pedirem para chamar alguém, use invite_friend e mande o link.
 - Rotinas condicionais: se pedirem para avisar só quando algo acontecer (ex.: preço abaixo de um valor), escreva a condição na instrução da rotina.`;
 
-export const PROMPTS: Record<string, string> = { v1: V1, v2: V2, v3: V3, v4: V4, v5: V5, v6: V6 };
+/** v7 — convite pergunta o contato do amigo antes. */
+const V7 = V6.replace(
+  "Se pedirem para chamar alguém, use invite_friend e mande o link.",
+  "Se pedirem para convidar alguém, pergunte o nome e o contato (telefone com DDD ou @usuário do Telegram), caso não tenham dito, e então use invite_friend.",
+);
+
+export const PROMPTS: Record<string, string> = { v1: V1, v2: V2, v3: V3, v4: V4, v5: V5, v6: V6, v7: V7 };
 
 export function systemPrompt(version: string): string {
-  return PROMPTS[version] ?? V6;
+  return PROMPTS[version] ?? V7;
 }
 
 /** Bloco dinâmico (fora do cache): quem é a pessoa e que horas são. */

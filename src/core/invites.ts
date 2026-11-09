@@ -42,6 +42,28 @@ export async function issueInvite(user: User): Promise<{ code: string; link: str
   return { code, link: inviteLink(code), left: r.rows[0]!.invites_left };
 }
 
+export type FriendContact = { kind: "phone"; value: string } | { kind: "telegram"; value: string } | { kind: "other"; value: string };
+
+/** Telefone vira E.164 sem "+" (assume Brasil para 10–11 dígitos); @usuario vira contato de Telegram. */
+export function parseContact(raw: string): FriendContact {
+  const t = raw.trim();
+  if (/^@?[A-Za-z][A-Za-z0-9_]{4,31}$/.test(t)) return { kind: "telegram", value: t.replace(/^@/, "") };
+  const digits = t.replace(/\D/g, "");
+  if (/^[+\d\s().-]+$/.test(t) && digits.length >= 10 && digits.length <= 15) {
+    return { kind: "phone", value: digits.length <= 11 ? `55${digits.replace(/^0/, "")}` : digits };
+  }
+  return { kind: "other", value: t };
+}
+
+export function inviteMessage(inviter: string | null, friendName: string | null, code: string): string {
+  const link = inviteLink(code);
+  const hi = friendName ? `Oi, ${friendName}! ` : "Oi! ";
+  return `${hi}${inviter ?? "Um amigo"} te convidou pro Juca, um assistente de IA que resolve suas coisas pelo chat. ${link ? `Entra por aqui: ${link}` : `Manda o código ${code} pro Juca.`}`;
+}
+
+export const whatsappChatLink = (phone: string, message: string) => `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+export const telegramShareLink = (code: string, message: string) => `https://t.me/share/url?url=${encodeURIComponent(inviteLink(code) ?? code)}&text=${encodeURIComponent(message.replace(/ Entra por aqui:.*$/, ""))}`;
+
 /** Número já cadastrado vinculando outro canal não precisa de convite novo. */
 export async function phoneHasAccount(phone: string, exceptUserId: number): Promise<boolean> {
   const r = await query("SELECT 1 FROM users WHERE phone = $1 AND id <> $2 AND invite_accepted", [phone, exceptUserId]);

@@ -153,6 +153,7 @@ export async function runAgent(user: User, history: StoredMessage[], userText: s
         }
       }),
     );
+    if (ctx.directReply) return { text: ctx.directReply, usage, model };
     messages.push({ role: "user", content: results });
   }
 

@@ -146,6 +146,23 @@ export const whatsapp: ChannelAdapter = {
   },
 };
 
+export const whatsappInviteReady = () => whatsappConfigured() && !!config.WHATSAPP_INVITE_TEMPLATE;
+
+/** Convite iniciado pelo Juca: o template tem {{1}} = quem convidou e {{2}} = código. */
+export async function sendWhatsAppInvite(to: string, inviter: string, code: string) {
+  await postMessage({
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "template",
+    template: {
+      name: config.WHATSAPP_INVITE_TEMPLATE,
+      language: { code: config.WHATSAPP_TEMPLATE_LANGUAGE },
+      components: [{ type: "body", parameters: [{ type: "text", text: templateParam(inviter) }, { type: "text", text: code }] }],
+    },
+  });
+}
+
 /** Usado pelo whatsapp:check para validar token e número. */
 export async function whatsappPhoneInfo() {
   return (await (await graph(`${config.WHATSAPP_PHONE_NUMBER_ID}?fields=display_phone_number,verified_name,quality_rating`)).json()) as {

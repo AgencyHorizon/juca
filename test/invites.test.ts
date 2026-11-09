@@ -107,3 +107,25 @@ describe.skipIf(!RUN)("entrada por convite", () => {
     await expect(m.skills.saveSkill(u.id, "start", "x")).rejects.toThrow(/outro nome/);
   });
 });
+
+describe("convidar amigo pelo contato", async () => {
+  const { parseContact, inviteMessage, whatsappChatLink, telegramShareLink } = await import("../src/core/invites.js");
+  it("reconhece telefone brasileiro, internacional e @usuario", () => {
+    expect(parseContact("(81) 99999-0000")).toEqual({ kind: "phone", value: "5581999990000" });
+    expect(parseContact("+55 11 98888-7777")).toEqual({ kind: "phone", value: "5511988887777" });
+    expect(parseContact("@derick_s")).toEqual({ kind: "telegram", value: "derick_s" });
+    expect(parseContact("derick_s")).toEqual({ kind: "telegram", value: "derick_s" });
+    expect(parseContact("a@b.com").kind).toBe("other");
+  });
+  it("monta os links com a mensagem pronta", () => {
+    const msg = inviteMessage("Vitor", "Ana", "JUCA-ABC234");
+    expect(msg).toContain("Oi, Ana! Vitor te convidou");
+    expect(msg).toContain("https://t.me/JucaBot?start=JUCA-ABC234");
+    const wa = new URL(whatsappChatLink("5581999990000", msg));
+    expect(wa.pathname).toBe("/5581999990000");
+    expect(wa.searchParams.get("text")).toBe(msg);
+    const tg = new URL(telegramShareLink("JUCA-ABC234", msg));
+    expect(tg.searchParams.get("url")).toBe("https://t.me/JucaBot?start=JUCA-ABC234");
+    expect(tg.searchParams.get("text")).not.toContain("t.me");
+  });
+});

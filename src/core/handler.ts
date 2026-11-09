@@ -17,6 +17,8 @@ import { transcriberFromEnv, type Transcriber } from "../speech/index.js";
 import { disconnectBanks } from "../integrations/finance/pluggy.js";
 import { createEvent, deleteEvent, updateEvent, type EventInput, type EventPatch } from "../integrations/google/calendar.js";
 import { expandSkill } from "./skills.js";
+import { issueInvite } from "./invites.js";
+import { sendWhatsAppInvite } from "../channels/whatsapp.js";
 import { draftHash, mailClients } from "../integrations/mail/index.js";
 import { disconnect as disconnectAccount, type OAuthProvider } from "../integrations/oauth.js";
 
@@ -254,6 +256,12 @@ async function executeConfirmed(user: User, msg: InboundMessage, pending: NonNul
       await audit(user.id, "user", "calendar_event_created", { with_invites: true });
       await send(msg, { text: "Evento criado e convites enviados ✅" });
       return;
+    case "send_invite": {
+      const { code, left } = await issueInvite(user);
+      await sendWhatsAppInvite(String(pending.args.to), user.name ?? "Um amigo", code);
+      await send(msg, { text: `Convite enviado ✅ Você ainda tem ${left}.` });
+      return;
+    }
     case "calendar_update": {
       await updateEvent(user.id, String(pending.args.event_id), pending.args.patch as EventPatch, true);
       await audit(user.id, "user", "calendar_event_updated", { with_invites: true });

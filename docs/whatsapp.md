@@ -38,6 +38,15 @@ A Meta só permite texto livre até 24h depois da última mensagem da pessoa. De
 
 Depois defina `WHATSAPP_REMINDER_TEMPLATE=lembrete_juca`. Sem isso, o aviso tenta o Telegram, se a pessoa tiver vinculado; se não houver outro canal, ele falha após as tentativas e fica registrado no log.
 
+## 5. Template para convidar amigos
+
+Com este template, o próprio Juca chama o amigo no WhatsApp depois do SIM de quem convidou:
+
+- Nome: `convite_juca` · Categoria: Utilidade ou Marketing, conforme a Meta classificar · Idioma: Português (BR)
+- Corpo: `{{1}} te convidou para o Juca, um assistente de IA no WhatsApp. Para entrar, responda com o código {{2}}.`
+
+Depois defina `WHATSAPP_INVITE_TEMPLATE=convite_juca`. A política da Meta exige consentimento de quem recebe mensagens iniciadas pela empresa: valide esse fluxo com o jurídico antes de usar em escala. Sem o template, o Juca gera um link que abre a conversa com o amigo com a mensagem pronta, e quem convida toca em enviar.
+
 ## O que o adapter faz
 
 - Valida a assinatura `X-Hub-Signature-256` de cada webhook.

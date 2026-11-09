@@ -15,7 +15,7 @@ const Env = z.object({
   NVIDIA_LLM_FALLBACK_MODEL: z.string().default("mistralai/mistral-large-4-1t-a52b"),
   JUCA_MODEL: z.string().default("claude-haiku-5-5"),
   JUCA_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),
-  PROMPT_VERSION: z.string().default("v6"),
+  PROMPT_VERSION: z.string().default("v7"),
 
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
@@ -51,6 +51,7 @@ const Env = z.object({
   // WhatsApp: versão da Graph API e template para mensagens fora da janela de 24h
   WHATSAPP_GRAPH_VERSION: z.string().default("v27.0"),
   WHATSAPP_REMINDER_TEMPLATE: z.string().default(""),
+  WHATSAPP_INVITE_TEMPLATE: z.string().default(""),
   WHATSAPP_TEMPLATE_LANGUAGE: z.string().default("pt_BR"),
   HF_ASR_MODEL: z.string().default("openai/whisper-large-v3"),
   STT_LANGUAGE: z.string().default("pt"),

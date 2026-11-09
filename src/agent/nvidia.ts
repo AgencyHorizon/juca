@@ -132,6 +132,7 @@ export async function runNvidiaAgent(p: {
     // Aprovação pendente: a pergunta exata sai do sistema, não há por que voltar ao modelo.
     const waiting = pending as PendingAction | undefined;
     if (waiting) return { text: waiting.prompt, pending: waiting, usage, model };
+    if (p.ctx.directReply) return { text: p.ctx.directReply, usage, model };
   }
   logger.warn({ model }, "agente terminou sem resposta");
   errors.inc({ where: "agent_max_steps" });
